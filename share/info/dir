@@ -55,6 +55,7 @@ Software development
 * Gas: (as).                    The GNU assembler.
 * Gdb: (gdb).                   The GNU debugger.
 * Ld: (ld).                     The GNU linker.
+* Ld-Internals: (ldint).        The GNU linker internals.
 * SFrame: (sframe-spec).        The Simple Frame format.
 * Stabs: (stabs).               The "stabs" debugging information format.
 * g++: (gcc).                   The GNU C++ compiler.
@@ -67,5 +68,5 @@ Software development
 * gcov-tool: (gcc) Gcov-tool.   'gcov-tool'--an offline gcda profile 
                                   processing program.
 * gdbserver: (gdb) Server.      The GNU debugging server.
-* gprof: (gprof).               Profiling your program's execution
+* gprof: (gprof).               Profiling your program’s execution
 * lto-dump: (gcc) lto-dump.     'lto-dump'--Tool for dumping LTO object files.

@@ -133,7 +133,7 @@
 .\" ========================================================================
 .\"
 .IX Title "LD 1"
-.TH LD 1 "2024-02-25" "binutils-2.39" "GNU Development Tools"
+.TH LD 1 "2024-05-09" "binutils-2.42" "GNU Development Tools"
 .\" For nroff, turn off justification.  Always turn off hyphenation; it makes
 .\" way too many mistakes in technical documents.
 .if n .ad l
@@ -362,6 +362,20 @@ specified in the library.  If specified multiple times \f(CW\*(C`DT_DEPAUDIT\*(C
 will contain a colon separated list of audit interfaces to use.  This
 option is only meaningful on \s-1ELF\s0 platforms supporting the rtld-audit interface.
 The \-P option is provided for Solaris compatibility.
+.IP "\fB\-\-enable\-linker\-version\fR" 4
+.IX Item "--enable-linker-version"
+Enables the \f(CW\*(C`LINKER_VERSION\*(C'\fR linker script directive, described
+in \fBOutput Section Data\fR.  If this directive is used in a linker
+script and this option has been enabled then a string containing the
+linker version will be inserted at the current point.
+.Sp
+Note \- this location of this option on the linker command line is
+significant.  It will only affect linker scripts that come after it on
+the command line, or which are built into the linker.
+.IP "\fB\-\-disable\-linker\-version\fR" 4
+.IX Item "--disable-linker-version"
+Disables the \f(CW\*(C`LINKER_VERSION\*(C'\fR linker script directive, so that it
+does not insert a version string.  This is the default.
 .IP "\fB\-\-enable\-non\-contiguous\-regions\fR" 4
 .IX Item "--enable-non-contiguous-regions"
 This option avoids generating an error if an input section does not
@@ -374,14 +388,14 @@ sections are evaluated does not change, for instance:
 .Sp
 .Vb 10
 \&          MEMORY {
-\&            MEM1 (rwx) : ORIGIN : 0x1000, LENGTH = 0x14
-\&            MEM2 (rwx) : ORIGIN : 0x1000, LENGTH = 0x40
-\&            MEM3 (rwx) : ORIGIN : 0x2000, LENGTH = 0x40
+\&            MEM1 (rwx) : ORIGIN = 0x1000, LENGTH = 0x14
+\&            MEM2 (rwx) : ORIGIN = 0x1000, LENGTH = 0x40
+\&            MEM3 (rwx) : ORIGIN = 0x2000, LENGTH = 0x40
 \&          }
 \&          SECTIONS {
 \&            mem1 : { *(.data.*); } > MEM1
 \&            mem2 : { *(.data.*); } > MEM2
-\&            mem3 : { *(.data.*); } > MEM2
+\&            mem3 : { *(.data.*); } > MEM3
 \&          }
 \&        
 \&          with input sections:
@@ -649,6 +663,66 @@ If the \fB\-m\fR option is not used, the emulation is taken from the
 .Sp
 Otherwise, the default emulation depends upon how the linker was
 configured.
+.IP "\fB\-\-remap\-inputs=\f(BIpattern\fB=\f(BIfilename\fB\fR" 4
+.IX Item "--remap-inputs=pattern=filename"
+.PD 0
+.IP "\fB\-\-remap\-inputs\-file=\f(BIfile\fB\fR" 4
+.IX Item "--remap-inputs-file=file"
+.PD
+These options allow the names of input files to be changed before the
+linker attempts to open them.  The option
+\&\fB\-\-remap\-inputs=foo.o=bar.o\fR will cause any attempt to load a
+file called \fIfoo.o\fR to instead try to load a file called
+\&\fIbar.o\fR.  Wildcard patterns are permitted in the first filename,
+so \fB\-\-remap\-inputs=foo*.o=bar.o\fR will rename any input file that
+matches \fIfoo*.o\fR to \fIbar.o\fR.
+.Sp
+An alternative form of the option
+\&\fB\-\-remap\-inputs\-file=filename\fR allows the remappings to be read
+from a file.  Each line in the file can contain a single remapping.
+Blank lines are ignored.  Anything from a hash character (\fB#\fR) to
+the end of a line is considered to be a comment and is also ignored.
+The mapping pattern can be separated from the filename by whitespace
+or an equals (\fB=\fR) character.
+.Sp
+The options can be specified multiple times.  Their contents
+accumulate.  The remappings will be processed in the order in which
+they occur on the command line, and if they come from a file, in the
+order in which they occur in the file.  If a match is made, no further
+checking for that filename will be performed.
+.Sp
+If the replacement filename is \fI/dev/null\fR or just \fI\s-1NUL\s0\fR
+then the remapping will actually cause the input file to be ignored.
+This can be a convenient way to experiment with removing input files
+from a complicated build environment.
+.Sp
+Note that this option is position dependent and only affects filenames
+that come after it on the command line.  Thus:
+.Sp
+.Vb 1
+\&          ld foo.o \-\-remap\-inputs=foo.o=bar.o
+.Ve
+.Sp
+Will have no effect, whereas:
+.Sp
+.Vb 1
+\&          ld \-\-remap\-inputs=foo.o=bar.o foo.o
+.Ve
+.Sp
+Will rename the input file \fIfoo.o\fR to \fIbar.o\fR.
+.Sp
+Note \- these options also affect files referenced by \fI\s-1INPUT\s0\fR
+statements in linker scripts.  But since linker scripts are processed
+after the entire command line is read, the position of the remap
+options on the command line is not significant.
+.Sp
+If the \fBverbose\fR option is enabled then any mappings that match
+will be reported, although again the \fBverbose\fR option needs to
+be enabled on the command line \fIbefore\fR the remaped filenames
+appear.
+.Sp
+If the \fB\-Map\fR or \fB\-\-print\-map\fR options are enabled then
+the remapping list will be included in the map output.
 .IP "\fB\-M\fR" 4
 .IX Item "-M"
 .PD 0
@@ -715,6 +789,15 @@ is 0x1, and \fIbar.o\fR, which doesn't have property 0xc0000002.
 This indicates that property 0xc0010001 value is updated to 0x1 in output
 when merging properties in  \fIfoo.o\fR, whose 0xc0010001 property value
 is 0x1, and \fIbar.o\fR, whose 0xc0010001 property value is 0x1.
+.IP "\(bu" 4
+On some \s-1ELF\s0 targets, a list of fixups inserted by \fB\-\-relax\fR
+.Sp
+.Vb 1
+\&        foo.o: Adjusting branch at 0x00000008 towards "far" in section .text
+.Ve
+.Sp
+This indicates that the branch at 0x00000008 in foo.o, targeting
+the symbol \*(L"far\*(R" in section .text, has been replaced by a trampoline.
 .RE
 .RS 4
 .RE
@@ -726,6 +809,17 @@ is 0x1, and \fIbar.o\fR, whose 0xc0010001 property value is 0x1.
 .PD
 Print (or do not print) the list of discarded and garbage collected sections
 in the link map.  Enabled by default.
+.IP "\fB\-\-print\-map\-locals\fR" 4
+.IX Item "--print-map-locals"
+.PD 0
+.IP "\fB\-\-no\-print\-map\-locals\fR" 4
+.IX Item "--no-print-map-locals"
+.PD
+Print (or do not print) local symbols in the link map.  Local symbols
+will have the text \fB(local)\fR printed before their name, and will
+be listed after all of the global symbols in a given section.
+Temporary local symbols (typically those that start with \fB.L\fR)
+will not be included in the output.  Disabled by default.
 .IP "\fB\-n\fR" 4
 .IX Item "-n"
 .PD 0
@@ -914,7 +1008,8 @@ a linker bug report.
 .IX Item "--script=scriptfile"
 .PD
 Use \fIscriptfile\fR as the linker script.  This script replaces
-\&\fBld\fR's default linker script (rather than adding to it), so
+\&\fBld\fR's default linker script (rather than adding to it),
+unless the script contains \f(CW\*(C`INSERT\*(C'\fR, so
 \&\fIcommandfile\fR must specify everything necessary to describe the
 output file.    If \fIscriptfile\fR does not exist in
 the current directory, \f(CW\*(C`ld\*(C'\fR looks for it in the directories
@@ -962,14 +1057,18 @@ and exit.  The same effect can be achieved in a linker script by using
 can be used multiple times to require additional symbols.
 .IP "\fB\-Ur\fR" 4
 .IX Item "-Ur"
-For anything other than \*(C+ programs, this option is equivalent to
-\&\fB\-r\fR: it generates relocatable output\-\-\-i.e., an output file that can in
-turn serve as input to \fBld\fR.  When linking \*(C+ programs, \fB\-Ur\fR
-\&\fIdoes\fR resolve references to constructors, unlike \fB\-r\fR.
-It does not work to use \fB\-Ur\fR on files that were themselves linked
-with \fB\-Ur\fR; once the constructor table has been built, it cannot
-be added to.  Use \fB\-Ur\fR only for the last partial link, and
-\&\fB\-r\fR for the others.
+For programs that do not use constructors or destructors, or for \s-1ELF\s0
+based systems this option is equivalent to \fB\-r\fR:  it generates
+relocatable output\-\-\-i.e., an output file that can in turn serve as
+input to \fBld\fR.  For other binaries however the \fB\-Ur\fR
+option is similar to \fB\-r\fR but it also resolves references to
+constructors and destructors.
+.Sp
+For those systems where \fB\-r\fR and \fB\-Ur\fR behave
+differently, it does not work to use \fB\-Ur\fR on files that were
+themselves linked with \fB\-Ur\fR; once the constructor table has
+been built, it cannot be added to.  Use \fB\-Ur\fR only for the last
+partial link, and \fB\-r\fR for the others.
 .IP "\fB\-\-orphan\-handling=\fR\fI\s-1MODE\s0\fR" 4
 .IX Item "--orphan-handling=MODE"
 Control how orphan sections are handled.  An orphan section is one not
@@ -1020,7 +1119,9 @@ in a linker script.
 .IX Item "-V"
 .PD
 Display the version number for \fBld\fR.  The \fB\-V\fR option also
-lists the supported emulations.
+lists the supported emulations.  See also the description of the
+\&\fB\-\-enable\-linker\-version\fR in \fBOptions,,Command\-line Options\fR
+which can be used to insert the linker version string into a binary.
 .IP "\fB\-x\fR" 4
 .IX Item "-x"
 .PD 0
@@ -1057,9 +1158,6 @@ for Solaris compatibility.
 .IX Item "-z keyword"
 The recognized keywords are:
 .RS 4
-.IP "\fBbndplt\fR" 4
-.IX Item "bndplt"
-Always generate \s-1BND\s0 prefix in \s-1PLT\s0 entries. Supported for Linux/x86_64.
 .IP "\fBcall\-nop=prefix\-addr\fR" 4
 .IX Item "call-nop=prefix-addr"
 .PD 0
@@ -1269,6 +1367,20 @@ Specify that the object's filters be processed immediately at runtime.
 .IP "\fBmax\-page\-size=\fR\fIvalue\fR" 4
 .IX Item "max-page-size=value"
 Set the maximum memory page size supported to \fIvalue\fR.
+.IP "\fBmark-plt\fR" 4
+.IX Item "mark-plt"
+.PD 0
+.IP "\fBnomark-plt\fR" 4
+.IX Item "nomark-plt"
+.PD
+Mark \s-1PLT\s0 entries with dynamic tags, \s-1DT_X86_64_PLT, DT_X86_64_PLTSZ\s0 and
+\&\s-1DT_X86_64_PLTENT.\s0  Since this option stores a non-zero value in the
+r_addend field of R_X86_64_JUMP_SLOT relocations, the resulting
+executables and shared libraries are incompatible with dynamic linkers,
+such as those in older versions of glibc without the change to ignore
+r_addend in R_X86_64_GLOB_DAT and R_X86_64_JUMP_SLOT relocations, which
+don't ignore the r_addend field of R_X86_64_JUMP_SLOT relocations.
+Supported for x86_64.
 .IP "\fBmuldefs\fR" 4
 .IX Item "muldefs"
 Allow multiple definitions.
@@ -1344,6 +1456,14 @@ Don't create an \s-1ELF\s0 \f(CW\*(C`PT_GNU_RELRO\*(C'\fR segment if \fBnorelro\
 .IX Item "report-relative-reloc"
 Report dynamic relative relocations generated by linker.  Supported for
 Linux/i386 and Linux/x86_64.
+.IP "\fBsectionheader\fR" 4
+.IX Item "sectionheader"
+.PD 0
+.IP "\fBnosectionheader\fR" 4
+.IX Item "nosectionheader"
+.PD
+Generate section header.  Don't generate section header if
+\&\fBnosectionheader\fR is used.  \fBsectionheader\fR is the default.
 .IP "\fBseparate-code\fR" 4
 .IX Item "separate-code"
 .PD 0
@@ -1768,6 +1888,16 @@ in filename invoked by \-R or \-\-just\-symbols
 .PD
 Treat all warnings as errors.  The default behaviour can be restored
 with the option \fB\-\-no\-fatal\-warnings\fR.
+.IP "\fB\-w\fR" 4
+.IX Item "-w"
+.PD 0
+.IP "\fB\-\-no\-warnings\fR" 4
+.IX Item "--no-warnings"
+.PD
+Do not display any warning or error messages.  This overrides
+\&\fB\-\-fatal\-warnings\fR if it has been enabled.  This option can be
+used when it is known that the output binary will not work, but there
+is still a need to create it.
 .IP "\fB\-\-force\-exe\-suffix\fR" 4
 .IX Item "--force-exe-suffix"
 Make sure that an output file has a .exe suffix.
@@ -2467,30 +2597,58 @@ detect the use of global constructors.
 .IP "\fB\-\-warn\-execstack\fR" 4
 .IX Item "--warn-execstack"
 .PD 0
+.IP "\fB\-\-warn\-execstack\-objects\fR" 4
+.IX Item "--warn-execstack-objects"
 .IP "\fB\-\-no\-warn\-execstack\fR" 4
 .IX Item "--no-warn-execstack"
 .PD
-On \s-1ELF\s0 platforms this option controls how the linker generates warning
-messages when it creates an output file with an executable stack.  By
-default the linker will not warn if the \fB\-z execstack\fR command
-line option has been used, but this behaviour can be overridden by the
-\&\fB\-\-warn\-execstack\fR option.
+On \s-1ELF\s0 platforms the linker may generate warning messages if it is
+asked to create an output file that contains an executable stack.
+There are three possible states:
+.RS 4
+.IP "1." 4
+Do not generate any warnings.
+.IP "2." 4
+Always generate warnings, even if the executable stack is requested
+via the \fB\-z execstack\fR command line option.
+.IP "3." 4
+Only generate a warning if an object file requests an executable
+stack, but not if the \fB\-z execstack\fR option is used.
+.RE
+.RS 4
 .Sp
-On the other hand the linker will normally warn if the stack is made
-executable because one or more of the input files need an execuable
-stack and neither of the \fB\-z execstack\fR or \fB\-z
-noexecstack\fR command line options have been specified.  This warning
-can be disabled via the \fB\-\-no\-warn\-execstack\fR option.
+The default state depends upon how the linker was configured when it
+was built.  The \fB\-\-no\-warn\-execstack\fR option always puts the
+linker into the no-warnings state.  The \fB\-\-warn\-execstack\fR
+option puts the linker into the warn-always state.  The
+\&\fB\-\-warn\-execstack\-objects\fR option puts the linker into the
+warn-for-object-files-only state.
 .Sp
-Note: \s-1ELF\s0 format input files specify that they need an executable
+Note: \s-1ELF\s0 format input files can specify that they need an executable
 stack by having a \fI.note.GNU\-stack\fR section with the executable
 bit set in its section flags.  They can specify that they do not need
-an executable stack by having that section, but without the executable
-flag bit set.  If an input file does not have a \fI.note.GNU\-stack\fR
-section present then the default behaviour is target specific.  For
-some targets, then absence of such a section implies that an
-executable stack \fIis\fR required.  This is often a problem for hand
-crafted assembler files.
+an executable stack by having the same section, but without the
+executable flag bit set.  If an input file does not have a
+\&\fI.note.GNU\-stack\fR section then the default behaviour is target
+specific.  For some targets, then absence of such a section implies
+that an executable stack \fIis\fR required.  This is often a problem
+for hand crafted assembler files.
+.RE
+.IP "\fB\-\-error\-execstack\fR" 4
+.IX Item "--error-execstack"
+.PD 0
+.IP "\fB\-\-no\-error\-execstack\fR" 4
+.IX Item "--no-error-execstack"
+.PD
+If the linker is going to generate a warning message about an
+executable stack then the \fB\-\-error\-execstack\fR option will
+instead change that warning into an error.  Note \- this option does
+not change the linker's execstack warning generation state.  Use
+\&\fB\-\-warn\-execstack\fR or \fB\-\-warn\-execstack\-objects\fR to set
+a specific warning state.
+.Sp
+The \fB\-\-no\-error\-execstack\fR option will restore the default
+behaviour of generating warning messages.
 .IP "\fB\-\-warn\-multiple\-gp\fR" 4
 .IX Item "--warn-multiple-gp"
 Warn if multiple global pointer values are required in the output file.
@@ -2524,6 +2682,22 @@ not it has the read and/or write flags set.
 These warnings are enabled by default.  They can be disabled via the
 \&\fB\-\-no\-warn\-rwx\-segments\fR option and re-enabled via the
 \&\fB\-\-warn\-rwx\-segments\fR option.
+.IP "\fB\-\-error\-rwx\-segments\fR" 4
+.IX Item "--error-rwx-segments"
+.PD 0
+.IP "\fB\-\-no\-error\-rwx\-segments\fR" 4
+.IX Item "--no-error-rwx-segments"
+.PD
+If the linker is going to generate a warning message about an
+executable, writeable segment, or an executable \s-1TLS\s0 segment, then the
+\&\fB\-\-error\-rwx\-segments\fR option will turn this warning into an
+error instead.  The \fB\-\-no\-error\-rwx\-segments\fR option will
+restore the default behaviour of just generating a warning message.
+.Sp
+Note \- the \fB\-\-error\-rwx\-segments\fR option does not by itself
+turn on warnings about these segments.  These warnings are either
+enabled by default, if the linker was configured that way, or via the
+\&\fB\-\-warn\-rwx\-segments\fR command line option.
 .IP "\fB\-\-warn\-section\-align\fR" 4
 .IX Item "--warn-section-align"
 Warn if the address of an output section is changed because of
@@ -2626,7 +2800,9 @@ section and \s-1ELF\s0 \f(CW\*(C`PT_GNU_EH_FRAME\*(C'\fR segment header.
 .IX Item "--no-ld-generated-unwind-info"
 Request creation of \f(CW\*(C`.eh_frame\*(C'\fR unwind info for linker
 generated code sections like \s-1PLT.\s0  This option is on by default
-if linker generated unwind info is supported.
+if linker generated unwind info is supported.  This option also
+controls the generation of \f(CW\*(C`.sframe\*(C'\fR stack trace info for linker
+generated code sections like \s-1PLT.\s0
 .IP "\fB\-\-enable\-new\-dtags\fR" 4
 .IX Item "--enable-new-dtags"
 .PD 0
@@ -2664,6 +2840,8 @@ but for most Linux based systems it will be \f(CW\*(C`both\*(C'\fR.
 .IX Item "--compress-debug-sections=zlib-gnu"
 .IP "\fB\-\-compress\-debug\-sections=zlib\-gabi\fR" 4
 .IX Item "--compress-debug-sections=zlib-gabi"
+.IP "\fB\-\-compress\-debug\-sections=zstd\fR" 4
+.IX Item "--compress-debug-sections=zstd"
 .PD
 On \s-1ELF\s0 platforms, these options control how \s-1DWARF\s0 debug sections are
 compressed using zlib.
@@ -2677,6 +2855,9 @@ sets the \s-1SHF_COMPRESSED\s0 flag in the sections' headers.
 .Sp
 The \fB\-\-compress\-debug\-sections=zlib\fR option is an alias for
 \&\fB\-\-compress\-debug\-sections=zlib\-gabi\fR.
+.Sp
+\&\fB\-\-compress\-debug\-sections=zstd\fR compresses \s-1DWARF\s0 debug sections using
+zstd.
 .Sp
 Note that this option overrides any compression in input debug
 sections, so if a binary is linked with \fB\-\-compress\-debug\-sections=none\fR
@@ -2740,7 +2921,7 @@ specification.  For more information see:
 https://systemd.io/ELF_PACKAGE_METADATA/
 If the \s-1JSON\s0 argument is missing/empty then this will disable the
 creation of the metadata note, if one had been enabled by an earlier
-occurrence of the \-\-package\-metdata option.
+occurrence of the \-\-package\-metadata option.
 If the linker has been built with libjansson, then the \s-1JSON\s0 string
 will be validated.
 .IP "\fB\-\-no\-poison\-system\-directories\fR" 4
@@ -3256,6 +3437,11 @@ same sources are linked.  The option \fB\-\-no\-insert\-timestamp\fR
 can be used to insert a zero value for the timestamp, this ensuring
 that binaries produced from identical sources will compare
 identically.
+.Sp
+If \fB\-\-insert\-timestamp\fR is active then the time inserted is
+either the time that the linking takes place or, if the
+\&\f(CW\*(C`SOURCE_DATE_EPOCH\*(C'\fR environment variable is defined, the number
+of seconds since Unix epoch as specified by that variable.
 .IP "\fB\-\-enable\-reloc\-section\fR" 4
 .IX Item "--enable-reloc-section"
 .PD 0
@@ -3452,7 +3638,7 @@ the Info entries for \fIbinutils\fR and
 \&\fIld\fR.
 .SH "COPYRIGHT"
 .IX Header "COPYRIGHT"
-Copyright (c) 1991\-2022 Free Software Foundation, Inc.
+Copyright (c) 1991\-2024 Free Software Foundation, Inc.
 .PP
 Permission is granted to copy, distribute and/or modify this document
 under the terms of the \s-1GNU\s0 Free Documentation License, Version 1.3
