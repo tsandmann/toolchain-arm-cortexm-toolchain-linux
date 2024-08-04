@@ -1,6 +1,6 @@
 This is gdb.info, produced by makeinfo version 6.8 from gdb.texinfo.
 
-Copyright (C) 1988-2023 Free Software Foundation, Inc.
+Copyright (C) 1988-2024 Free Software Foundation, Inc.
 
    Permission is granted to copy, distribute and/or modify this document
 under the terms of the GNU Free Documentation License, Version 1.3 or
@@ -21,9 +21,9 @@ END-INFO-DIR-ENTRY
    This file documents the GNU debugger GDB.
 
    This is the Tenth Edition, of 'Debugging with GDB: the GNU
-Source-Level Debugger' for GDB (GDB) Version 14.2.
+Source-Level Debugger' for GDB (GDB) Version 15.1.
 
-   Copyright (C) 1988-2023 Free Software Foundation, Inc.
+   Copyright (C) 1988-2024 Free Software Foundation, Inc.
 
    Permission is granted to copy, distribute and/or modify this document
 under the terms of the GNU Free Documentation License, Version 1.3 or
@@ -44,9 +44,9 @@ Debugging with GDB
 
 This file describes GDB, the GNU symbolic debugger.
 
-   This is the Tenth Edition, for GDB (GDB) Version 14.2.
+   This is the Tenth Edition, for GDB (GDB) Version 15.1.
 
-   Copyright (C) 1988-2023 Free Software Foundation, Inc.
+   Copyright (C) 1988-2024 Free Software Foundation, Inc.
 
    This edition of the GDB manual is dedicated to the memory of Fred
 Fish.  Fred was a long-standing contributor to GDB and to Free software
@@ -513,7 +513,7 @@ Let us use GDB to try to see what is going on.
      There is absolutely no warranty for GDB; type "show warranty"
       for details.
 
-     GDB 14.2, Copyright 1999 Free Software Foundation, Inc...
+     GDB 15.1, Copyright 1999 Free Software Foundation, Inc...
      (gdb)
 
 GDB reads only enough symbol data to know where to find the rest when
@@ -1430,6 +1430,7 @@ alternatives available, if there is more than one possibility).
 * Command Syntax::              How to give commands to GDB
 * Command Settings::            How to change default behavior of commands
 * Completion::                  Command completion
+* Filename Arguments::		Filenames As Command Arguments
 * Command Options::             Command options
 * Help::                        How to ask GDB for help
 
@@ -1550,7 +1551,7 @@ temporarily, for the duration of a command invocation.
      limit of 10 elements to print for arrays and strings.
 
 
-File: gdb.info,  Node: Completion,  Next: Command Options,  Prev: Command Settings,  Up: Commands
+File: gdb.info,  Node: Completion,  Next: Filename Arguments,  Prev: Command Settings,  Up: Commands
 
 3.3 Command Completion
 ======================
@@ -1730,9 +1731,64 @@ expressions.  Also, it only examines the static type of the expression,
 not the dynamic type.
 
 
-File: gdb.info,  Node: Command Options,  Next: Help,  Prev: Completion,  Up: Commands
+File: gdb.info,  Node: Filename Arguments,  Next: Command Options,  Prev: Completion,  Up: Commands
 
-3.4 Command options
+3.4 Filenames As Command Arguments
+==================================
+
+When passing filenames (or directory names) as arguments to a command,
+if the filename argument does not include any whitespace, double quotes,
+or single quotes, then for all commands the filename can be written as a
+simple string, for example:
+
+     (gdb) file /path/to/some/file
+
+   If the filename does include whitespace, double quotes, or single
+quotes, then GDB has two approaches for how these filenames should be
+formatted; which format to use depends on which command is being used.
+
+   Most GDB commands don't require, or support, quoting and escaping.
+These commands treat any text after the command name, that is not a
+command option (*note Command Options::), as the filename, even if the
+filename contains whitespace or quote characters.  In the following
+example the user is adding '/path/that contains/two spaces/' to the
+auto-load safe-path (*note add-auto-load-safe-path::):
+
+     (gdb) add-auto-load-safe-path /path/that contains/two spaces/
+
+   A small number of commands require that filenames containing
+whitespace or quote characters are either quoted, or have the special
+characters escaped with a backslash.  Commands that support this style
+are marked as such in the manual, any command not marked as accepting
+quoting and escaping of its filename argument, does not accept this
+filename argument style.
+
+   For example, to load the file '/path/with spaces/to/a file' with the
+'file' command (*note Commands to Specify Files: Files.), you can escape
+the whitespace characters with a backslash:
+
+     (gdb) file /path/with\ spaces/to/a\ file
+
+   Alternatively the entire filename can be wrapped in either single or
+double quotes, in which case no backlsashes are needed, for example:
+
+     (gdb) symbol-file "/path/with spaces/to/a file"
+     (gdb) exec-file '/path/with spaces/to/a file'
+
+   It is possible to include a quote character within a quoted filename
+by escaping it with a backslash, for example, within a filename
+surrounded by double quotes, a double quote character should be escaped
+with a backslash, but a single quote character should not be escaped.
+Within a single quoted string a single quote character needs to be
+escaped, but a double quote character does not.
+
+   A literal backslash character can also be included by escaping it
+with a backslash.
+
+
+File: gdb.info,  Node: Command Options,  Next: Help,  Prev: Filename Arguments,  Up: Commands
+
+3.5 Command options
 ===================
 
 Some commands accept options starting with a leading dash.  For example,
@@ -1786,7 +1842,7 @@ Data.)
 
 File: gdb.info,  Node: Help,  Prev: Command Options,  Up: Commands
 
-3.5 Getting Help
+3.6 Getting Help
 ================
 
 You can always ask GDB itself for information on its commands, using the
@@ -2233,7 +2289,7 @@ breakpoints.
      with the 'set auto-connect-native-target off' command.
 
      If 'on', which is the default, and if the current inferior is not
-     connected to a target already, the 'run' command automaticaly
+     connected to a target already, the 'run' command automatically
      connects to the native target, if one is available.
 
      If 'off', and if the current inferior is not connected to a target
@@ -3561,7 +3617,8 @@ any time.
 
 * Menu:
 
-* Breakpoints::                 Breakpoints, watchpoints, and catchpoints
+* Breakpoints::                 Breakpoints, watchpoints, tracepoints,
+                                and catchpoints
 * Continuing and Stepping::     Resuming execution
 * Skipping Over Functions and Files::
                                 Skipping over functions and files
@@ -3880,15 +3937,15 @@ or last hit breakpoint:
 
 'info breakpoints [LIST...]'
 'info break [LIST...]'
-     Print a table of all breakpoints, watchpoints, and catchpoints set
-     and not deleted.  Optional argument N means print information only
-     about the specified breakpoint(s) (or watchpoint(s) or
-     catchpoint(s)).  For each breakpoint, following columns are
-     printed:
+     Print a table of all breakpoints, watchpoints, tracepoints, and
+     catchpoints set and not deleted.  Optional argument N means print
+     information only about the specified breakpoint(s) (or
+     watchpoint(s) or tracepoint(s) or catchpoint(s)).  For each
+     breakpoint, following columns are printed:
 
      _Breakpoint Numbers_
      _Type_
-          Breakpoint, watchpoint, or catchpoint.
+          Breakpoint, watchpoint, tracepoint, or catchpoint.
      _Disposition_
           Whether the breakpoint is marked to be disabled or deleted
           when hit.
@@ -4681,11 +4738,11 @@ address.
      described in *note Location Specifications::.
 
 'delete [breakpoints] [LIST...]'
-     Delete the breakpoints, watchpoints, or catchpoints of the
-     breakpoint list specified as argument.  If no argument is
-     specified, delete all breakpoints (GDB asks confirmation, unless
-     you have 'set confirm off').  You can abbreviate this command as
-     'd'.
+     Delete the breakpoints, watchpoints, tracepoints, or catchpoints of
+     the breakpoint list specified as argument.  If no argument is
+     specified, delete all breakpoints, watchpoints, tracepoints, and
+     catchpoints (GDB asks confirmation, unless you have 'set confirm
+     off').  You can abbreviate this command as 'd'.
 
 
 File: gdb.info,  Node: Disabling,  Next: Conditions,  Prev: Delete Breaks,  Up: Breakpoints
@@ -4698,11 +4755,11 @@ prefer to "disable" it.  This makes the breakpoint inoperative as if it
 had been deleted, but remembers the information on the breakpoint so
 that you can "enable" it again later.
 
-   You disable and enable breakpoints, watchpoints, and catchpoints with
-the 'enable' and 'disable' commands, optionally specifying one or more
-breakpoint numbers as arguments.  Use 'info break' to print a list of
-all breakpoints, watchpoints, and catchpoints if you do not know which
-numbers to use.
+   You disable and enable breakpoints, watchpoints, tracepoints, and
+catchpoints with the 'enable' and 'disable' commands, optionally
+specifying one or more breakpoint numbers as arguments.  Use 'info
+break' to print a list of all breakpoints, watchpoints, tracepoints, and
+catchpoints if you do not know which numbers to use.
 
    Disabling and enabling a breakpoint that has multiple locations
 affects all of its locations.
@@ -4722,7 +4779,7 @@ different states of enablement:
      breakpoint set with the 'tbreak' command starts out in this state.
 
    You can use the following commands to enable or disable breakpoints,
-watchpoints, and catchpoints:
+watchpoints, tracepoints, and catchpoints:
 
 'disable [breakpoints] [LIST...]'
      Disable the specified breakpoints--or all breakpoints, if none are
@@ -4880,7 +4937,8 @@ it.
      decremented each time.  *Note Convenience Variables: Convenience
      Vars.
 
-   Ignore counts apply to breakpoints, watchpoints, and catchpoints.
+   Ignore counts apply to breakpoints, watchpoints, tracepoints, and
+catchpoints.
 
 
 File: gdb.info,  Node: Break Commands,  Next: Dynamic Printf,  Prev: Conditions,  Up: Breakpoints
@@ -5956,6 +6014,8 @@ scheduler to allow only a single thread to run.
 
      'on'
           Only the current thread may run when the inferior is resumed.
+          New threads created by the resumed thread are held stopped at
+          their entry point, before they execute any instruction.
 
      'step'
           Behaves like 'on' when stepping, and 'off' otherwise.  Threads

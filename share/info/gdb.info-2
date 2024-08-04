@@ -1,6 +1,6 @@
 This is gdb.info, produced by makeinfo version 6.8 from gdb.texinfo.
 
-Copyright (C) 1988-2023 Free Software Foundation, Inc.
+Copyright (C) 1988-2024 Free Software Foundation, Inc.
 
    Permission is granted to copy, distribute and/or modify this document
 under the terms of the GNU Free Documentation License, Version 1.3 or
@@ -21,9 +21,9 @@ END-INFO-DIR-ENTRY
    This file documents the GNU debugger GDB.
 
    This is the Tenth Edition, of 'Debugging with GDB: the GNU
-Source-Level Debugger' for GDB (GDB) Version 14.2.
+Source-Level Debugger' for GDB (GDB) Version 15.1.
 
-   Copyright (C) 1988-2023 Free Software Foundation, Inc.
+   Copyright (C) 1988-2024 Free Software Foundation, Inc.
 
    Permission is granted to copy, distribute and/or modify this document
 under the terms of the GNU Free Documentation License, Version 1.3 or
@@ -1581,13 +1581,20 @@ location will display information about the next source line.
      instructions.  It can also print mixed source+disassembly by
      specifying the '/m' or '/s' modifier and print the raw instructions
      in hex as well as in symbolic form by specifying the '/r' or '/b'
-     modifier.  The default memory range is the function surrounding the
-     program counter of the selected frame.  A single argument to this
-     command is a program counter value; GDB dumps the function
-     surrounding this value.  When two arguments are given, they should
-     be separated by a comma, possibly surrounded by whitespace.  The
-     arguments specify a range of addresses to dump, in one of two
-     forms:
+     modifier.
+
+     Only one of '/m' and '/s' can be used, attempting to use both flag
+     will give an error.
+
+     Only one of '/r' and '/b' can be used, attempting to use both flag
+     will give an error.
+
+     The default memory range is the function surrounding the program
+     counter of the selected frame.  A single argument to this command
+     is a program counter value; GDB dumps the function surrounding this
+     value.  When two arguments are given, they should be separated by a
+     comma, possibly surrounded by whitespace.  The arguments specify a
+     range of addresses to dump, in one of two forms:
 
      'START,END'
           the addresses from START (inclusive) to END (exclusive)
@@ -4817,6 +4824,9 @@ special command for that.
      specified, the file name defaults to 'core.PID', where PID is the
      inferior process ID.
 
+     If supported by the filesystem where the core is written to, GDB
+     generates a sparse core dump file.
+
      Note that this command is implemented only for some systems (as of
      this writing, GNU/Linux, FreeBSD, Solaris, and S390).
 
@@ -5389,8 +5399,8 @@ ambiguous.  There is no execution history stored (possible *note Reverse
 Execution:: is never used for this purpose) and the last known caller
 could have reached the known callee by multiple different jump
 sequences.  In such case GDB still tries to show at least all the
-unambiguous top tail callers and all the unambiguous bottom tail calees,
-if any.
+unambiguous top tail callers and all the unambiguous bottom tail
+callees, if any.
 
 'set debug entry-values'
      When set to on, enables printing of analysis messages for both
@@ -7125,116 +7135,4 @@ accurately keep track of which overlays are in program memory, and
 update any breakpoints that may be set in overlays.  This will allow
 breakpoints to work even if the overlays are kept in ROM or other
 non-writable memory while they are not being executed.
-
-
-File: gdb.info,  Node: Overlay Sample Program,  Prev: Automatic Overlay Debugging,  Up: Overlays
-
-14.4 Overlay Sample Program
-===========================
-
-When linking a program which uses overlays, you must place the overlays
-at their load addresses, while relocating them to run at their mapped
-addresses.  To do this, you must write a linker script (*note
-(ld.info)Overlay Description::).  Unfortunately, since linker scripts
-are specific to a particular host system, target architecture, and
-target memory layout, this manual cannot provide portable sample code
-demonstrating GDB's overlay support.
-
-   However, the GDB source distribution does contain an overlaid
-program, with linker scripts for a few systems, as part of its test
-suite.  The program consists of the following files from
-'gdb/testsuite/gdb.base':
-
-'overlays.c'
-     The main program file.
-'ovlymgr.c'
-     A simple overlay manager, used by 'overlays.c'.
-'foo.c'
-'bar.c'
-'baz.c'
-'grbx.c'
-     Overlay modules, loaded and used by 'overlays.c'.
-'d10v.ld'
-'m32r.ld'
-     Linker scripts for linking the test program on the 'd10v-elf' and
-     'm32r-elf' targets.
-
-   You can build the test program using the 'd10v-elf' GCC
-cross-compiler like this:
-
-     $ d10v-elf-gcc -g -c overlays.c
-     $ d10v-elf-gcc -g -c ovlymgr.c
-     $ d10v-elf-gcc -g -c foo.c
-     $ d10v-elf-gcc -g -c bar.c
-     $ d10v-elf-gcc -g -c baz.c
-     $ d10v-elf-gcc -g -c grbx.c
-     $ d10v-elf-gcc -g overlays.o ovlymgr.o foo.o bar.o \
-                       baz.o grbx.o -Wl,-Td10v.ld -o overlays
-
-   The build process is identical for any other architecture, except
-that you must substitute the appropriate compiler and linker script for
-the target system for 'd10v-elf-gcc' and 'd10v.ld'.
-
-
-File: gdb.info,  Node: Languages,  Next: Symbols,  Prev: Overlays,  Up: Top
-
-15 Using GDB with Different Languages
-*************************************
-
-Although programming languages generally have common aspects, they are
-rarely expressed in the same manner.  For instance, in ANSI C,
-dereferencing a pointer 'p' is accomplished by '*p', but in Modula-2, it
-is accomplished by 'p^'.  Values can also be represented (and displayed)
-differently.  Hex numbers in C appear as '0x1ae', while in Modula-2 they
-appear as '1AEH'.
-
-   Language-specific information is built into GDB for some languages,
-allowing you to express operations like the above in your program's
-native language, and allowing GDB to output values in a manner
-consistent with the syntax of your program's native language.  The
-language you use to build expressions is called the "working language".
-
-* Menu:
-
-* Setting::                     Switching between source languages
-* Show::                        Displaying the language
-* Checks::                      Type and range checks
-* Supported Languages::         Supported languages
-* Unsupported Languages::       Unsupported languages
-
-
-File: gdb.info,  Node: Setting,  Next: Show,  Up: Languages
-
-15.1 Switching Between Source Languages
-=======================================
-
-There are two ways to control the working language--either have GDB set
-it automatically, or select it manually yourself.  You can use the 'set
-language' command for either purpose.  On startup, GDB defaults to
-setting the language automatically.  The working language is used to
-determine how expressions you type are interpreted, how values are
-printed, etc.
-
-   In addition to the working language, every source file that GDB knows
-about has its own working language.  For some object file formats, the
-compiler might indicate which language a particular source file is in.
-However, most of the time GDB infers the language from the name of the
-file.  The language of a source file controls whether C++ names are
-demangled--this way 'backtrace' can show each frame appropriately for
-its own language.  There is no way to set the language of a source file
-from within GDB, but you can set the language associated with a filename
-extension.  *Note Displaying the Language: Show.
-
-   This is most commonly a problem when you use a program, such as
-'cfront' or 'f2c', that generates C but is written in another language.
-In that case, make the program use '#line' directives in its C output;
-that way GDB will know the correct language of the source code of the
-original program, and will display that source code, not the generated C
-code.
-
-* Menu:
-
-* Filenames::                   Filename extensions and languages.
-* Manually::                    Setting the working language manually
-* Automatically::               Having GDB infer the source language
 

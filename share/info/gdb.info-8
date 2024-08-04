@@ -1,6 +1,6 @@
 This is gdb.info, produced by makeinfo version 6.8 from gdb.texinfo.
 
-Copyright (C) 1988-2023 Free Software Foundation, Inc.
+Copyright (C) 1988-2024 Free Software Foundation, Inc.
 
    Permission is granted to copy, distribute and/or modify this document
 under the terms of the GNU Free Documentation License, Version 1.3 or
@@ -21,9 +21,9 @@ END-INFO-DIR-ENTRY
    This file documents the GNU debugger GDB.
 
    This is the Tenth Edition, of 'Debugging with GDB: the GNU
-Source-Level Debugger' for GDB (GDB) Version 14.2.
+Source-Level Debugger' for GDB (GDB) Version 15.1.
 
-   Copyright (C) 1988-2023 Free Software Foundation, Inc.
+   Copyright (C) 1988-2024 Free Software Foundation, Inc.
 
    Permission is granted to copy, distribute and/or modify this document
 under the terms of the GNU Free Documentation License, Version 1.3 or
@@ -37,9 +37,337 @@ this GNU Manual.  Buying copies from GNU Press supports the FSF in
 developing GNU and promoting software freedom."
 
 
+File: gdb.info,  Node: Host I/O Packets,  Next: Interrupts,  Prev: Tracepoint Packets,  Up: Remote Protocol
+
+E.8 Host I/O Packets
+====================
+
+The "Host I/O" packets allow GDB to perform I/O operations on the far
+side of a remote link.  For example, Host I/O is used to upload and
+download files to a remote target with its own filesystem.  Host I/O
+uses the same constant values and data structure layout as the
+target-initiated File-I/O protocol.  However, the Host I/O packets are
+structured differently.  The target-initiated protocol relies on target
+memory to store parameters and buffers.  Host I/O requests are initiated
+by GDB, and the target's memory is not involved.  *Note File-I/O Remote
+Protocol Extension::, for more details on the target-initiated protocol.
+
+   The Host I/O request packets all encode a single operation along with
+its arguments.  They have this format:
+
+'vFile:OPERATION: PARAMETER...'
+     OPERATION is the name of the particular request; the target should
+     compare the entire packet name up to the second colon when checking
+     for a supported operation.  The format of PARAMETER depends on the
+     operation.  Numbers are always passed in hexadecimal.  Negative
+     numbers have an explicit minus sign (i.e. two's complement is not
+     used).  Strings (e.g. filenames) are encoded as a series of
+     hexadecimal bytes.  The last argument to a system call may be a
+     buffer of escaped binary data (*note Binary Data::).
+
+   The valid responses to Host I/O packets are:
+
+'F RESULT [, ERRNO] [; ATTACHMENT]'
+     RESULT is the integer value returned by this operation, usually
+     non-negative for success and -1 for errors.  If an error has
+     occurred, ERRNO will be included in the result specifying a value
+     defined by the File-I/O protocol (*note Errno Values::).  For
+     operations which return data, ATTACHMENT supplies the data as a
+     binary buffer.  Binary buffers in response packets are escaped in
+     the normal way (*note Binary Data::).  See the individual packet
+     documentation for the interpretation of RESULT and ATTACHMENT.
+
+''
+     An empty response indicates that this operation is not recognized.
+
+   These are the supported Host I/O operations:
+
+'vFile:open: FILENAME, FLAGS, MODE'
+     Open a file at FILENAME and return a file descriptor for it, or
+     return -1 if an error occurs.  The FILENAME is a string, FLAGS is
+     an integer indicating a mask of open flags (*note Open Flags::),
+     and MODE is an integer indicating a mask of mode bits to use if the
+     file is created (*note mode_t Values::).  *Note open::, for details
+     of the open flags and mode values.
+
+'vFile:close: FD'
+     Close the open file corresponding to FD and return 0, or -1 if an
+     error occurs.
+
+'vFile:pread: FD, COUNT, OFFSET'
+     Read data from the open file corresponding to FD.  Up to COUNT
+     bytes will be read from the file, starting at OFFSET relative to
+     the start of the file.  The target may read fewer bytes; common
+     reasons include packet size limits and an end-of-file condition.
+     The number of bytes read is returned.  Zero should only be returned
+     for a successful read at the end of the file, or if COUNT was zero.
+
+     The data read should be returned as a binary attachment on success.
+     If zero bytes were read, the response should include an empty
+     binary attachment (i.e. a trailing semicolon).  The return value is
+     the number of target bytes read; the binary attachment may be
+     longer if some characters were escaped.
+
+'vFile:pwrite: FD, OFFSET, DATA'
+     Write DATA (a binary buffer) to the open file corresponding to FD.
+     Start the write at OFFSET from the start of the file.  Unlike many
+     'write' system calls, there is no separate COUNT argument; the
+     length of DATA in the packet is used.  'vFile:pwrite' returns the
+     number of bytes written, which may be shorter than the length of
+     DATA, or -1 if an error occurred.
+
+'vFile:fstat: FD'
+     Get information about the open file corresponding to FD.  On
+     success the information is returned as a binary attachment and the
+     return value is the size of this attachment in bytes.  If an error
+     occurs the return value is -1.  The format of the returned binary
+     attachment is as described in *note struct stat::.
+
+'vFile:unlink: FILENAME'
+     Delete the file at FILENAME on the target.  Return 0, or -1 if an
+     error occurs.  The FILENAME is a string.
+
+'vFile:readlink: FILENAME'
+     Read value of symbolic link FILENAME on the target.  Return the
+     number of bytes read, or -1 if an error occurs.
+
+     The data read should be returned as a binary attachment on success.
+     If zero bytes were read, the response should include an empty
+     binary attachment (i.e. a trailing semicolon).  The return value is
+     the number of target bytes read; the binary attachment may be
+     longer if some characters were escaped.
+
+'vFile:setfs: PID'
+     Select the filesystem on which 'vFile' operations with FILENAME
+     arguments will operate.  This is required for GDB to be able to
+     access files on remote targets where the remote stub does not share
+     a common filesystem with the inferior(s).
+
+     If PID is nonzero, select the filesystem as seen by process PID.
+     If PID is zero, select the filesystem as seen by the remote stub.
+     Return 0 on success, or -1 if an error occurs.  If 'vFile:setfs:'
+     indicates success, the selected filesystem remains selected until
+     the next successful 'vFile:setfs:' operation.
+
+
+File: gdb.info,  Node: Interrupts,  Next: Notification Packets,  Prev: Host I/O Packets,  Up: Remote Protocol
+
+E.9 Interrupts
+==============
+
+In all-stop mode, when a program on the remote target is running, GDB
+may attempt to interrupt it by sending a 'Ctrl-C', 'BREAK' or a 'BREAK'
+followed by 'g', control of which is specified via GDB's
+'interrupt-sequence'.
+
+   The precise meaning of 'BREAK' is defined by the transport mechanism
+and may, in fact, be undefined.  GDB does not currently define a 'BREAK'
+mechanism for any of the network interfaces except for TCP, in which
+case GDB sends the 'telnet' BREAK sequence.
+
+   'Ctrl-C', on the other hand, is defined and implemented for all
+transport mechanisms.  It is represented by sending the single byte
+'0x03' without any of the usual packet overhead described in the
+Overview section (*note Overview::).  When a '0x03' byte is transmitted
+as part of a packet, it is considered to be packet data and does _not_
+represent an interrupt.  E.g., an 'X' packet (*note X packet::), used
+for binary downloads, may include an unescaped '0x03' as part of its
+packet.
+
+   'BREAK' followed by 'g' is also known as Magic SysRq g.  When Linux
+kernel receives this sequence from serial port, it stops execution and
+connects to gdb.
+
+   In non-stop mode, because packet resumptions are asynchronous (*note
+vCont packet::), GDB is always free to send a remote command to the
+remote stub, even when the target is running.  For that reason, GDB
+instead sends a regular packet (*note vCtrlC packet::) with the usual
+packet framing instead of the single byte '0x03'.
+
+   Stubs are not required to recognize these interrupt mechanisms and
+the precise meaning associated with receipt of the interrupt is
+implementation defined.  If the target supports debugging of multiple
+threads and/or processes, it should attempt to interrupt all
+currently-executing threads and processes.  If the stub is successful at
+interrupting the running program, it should send one of the stop reply
+packets (*note Stop Reply Packets::) to GDB as a result of successfully
+stopping the program in all-stop mode, and a stop reply for each stopped
+thread in non-stop mode.  Interrupts received while the program is
+stopped are queued and the program will be interrupted when it is
+resumed next time.
+
+
+File: gdb.info,  Node: Notification Packets,  Next: Remote Non-Stop,  Prev: Interrupts,  Up: Remote Protocol
+
+E.10 Notification Packets
+=========================
+
+The GDB remote serial protocol includes "notifications", packets that
+require no acknowledgment.  Both the GDB and the stub may send
+notifications (although the only notifications defined at present are
+sent by the stub).  Notifications carry information without incurring
+the round-trip latency of an acknowledgment, and so are useful for
+low-impact communications where occasional packet loss is not a problem.
+
+   A notification packet has the form '% DATA # CHECKSUM', where DATA is
+the content of the notification, and CHECKSUM is a checksum of DATA,
+computed and formatted as for ordinary GDB packets.  A notification's
+DATA never contains '$', '%' or '#' characters.  Upon receiving a
+notification, the recipient sends no '+' or '-' to acknowledge the
+notification's receipt or to report its corruption.
+
+   Every notification's DATA begins with a name, which contains no colon
+characters, followed by a colon character.
+
+   Recipients should silently ignore corrupted notifications and
+notifications they do not understand.  Recipients should restart timeout
+periods on receipt of a well-formed notification, whether or not they
+understand it.
+
+   Senders should only send the notifications described here when this
+protocol description specifies that they are permitted.  In the future,
+we may extend the protocol to permit existing notifications in new
+contexts; this rule helps older senders avoid confusing newer
+recipients.
+
+   (Older versions of GDB ignore bytes received until they see the '$'
+byte that begins an ordinary packet, so new stubs may transmit
+notifications without fear of confusing older clients.  There are no
+notifications defined for GDB to send at the moment, but we assume that
+most older stubs would ignore them, as well.)
+
+   Each notification is comprised of three parts:
+'NAME:EVENT'
+     The notification packet is sent by the side that initiates the
+     exchange (currently, only the stub does that), with EVENT carrying
+     the specific information about the notification, and NAME
+     specifying the name of the notification.
+'ACK'
+     The acknowledge sent by the other side, usually GDB, to acknowledge
+     the exchange and request the event.
+
+   The purpose of an asynchronous notification mechanism is to report to
+GDB that something interesting happened in the remote stub.
+
+   The remote stub may send notification NAME:EVENT at any time, but GDB
+acknowledges the notification when appropriate.  The notification event
+is pending before GDB acknowledges.  Only one notification at a time may
+be pending; if additional events occur before GDB has acknowledged the
+previous notification, they must be queued by the stub for later
+synchronous transmission in response to ACK packets from GDB.  Because
+the notification mechanism is unreliable, the stub is permitted to
+resend a notification if it believes GDB may not have received it.
+
+   Specifically, notifications may appear when GDB is not otherwise
+reading input from the stub, or when GDB is expecting to read a normal
+synchronous response or a '+'/'-' acknowledgment to a packet it has
+sent.  Notification packets are distinct from any other communication
+from the stub so there is no ambiguity.
+
+   After receiving a notification, GDB shall acknowledge it by sending a
+ACK packet as a regular, synchronous request to the stub.  Such
+acknowledgment is not required to happen immediately, as GDB is
+permitted to send other, unrelated packets to the stub first, which the
+stub should process normally.
+
+   Upon receiving a ACK packet, if the stub has other queued events to
+report to GDB, it shall respond by sending a normal EVENT.  GDB shall
+then send another ACK packet to solicit further responses; again, it is
+permitted to send other, unrelated packets as well which the stub should
+process normally.
+
+   If the stub receives a ACK packet and there are no additional EVENT
+to report, the stub shall return an 'OK' response.  At this point, GDB
+has finished processing a notification and the stub has completed
+sending any queued events.  GDB won't accept any new notifications until
+the final 'OK' is received .  If further notification events occur, the
+stub shall send a new notification, GDB shall accept the notification,
+and the process shall be repeated.
+
+   The process of asynchronous notification can be illustrated by the
+following example:
+     <- %Stop:T0505:98e7ffbf;04:4ce6ffbf;08:b1b6e54c;thread:p7526.7526;core:0;
+     ...
+     -> vStopped
+     <- T0505:68f37db7;04:40f37db7;08:63850408;thread:p7526.7528;core:0;
+     -> vStopped
+     <- T0505:68e3fdb6;04:40e3fdb6;08:63850408;thread:p7526.7529;core:0;
+     -> vStopped
+     <- OK
+
+   The following notifications are defined:
+
+NotificationAck     Event                       Description
+                                                
+Stop      vStopped  REPLY.  The REPLY has the   Report an asynchronous
+                    form of a stop reply, as    stop event in non-stop
+                    described in                mode.
+                    *note Stop Reply Packets::. 
+                    Refer to
+                    *note Remote Non-Stop::,
+                    for information on how
+                    these notifications are
+                    acknowledged by GDB.
+
+
+File: gdb.info,  Node: Remote Non-Stop,  Next: Packet Acknowledgment,  Prev: Notification Packets,  Up: Remote Protocol
+
+E.11 Remote Protocol Support for Non-Stop Mode
+==============================================
+
+GDB's remote protocol supports non-stop debugging of multi-threaded
+programs, as described in *note Non-Stop Mode::.  If the stub supports
+non-stop mode, it should report that to GDB by including 'QNonStop+' in
+its 'qSupported' response (*note qSupported::).
+
+   GDB typically sends a 'QNonStop' packet only when establishing a new
+connection with the stub.  Entering non-stop mode does not alter the
+state of any currently-running threads, but targets must stop all
+threads in any already-attached processes when entering all-stop mode.
+GDB uses the '?' packet as necessary to probe the target state after a
+mode change.
+
+   In non-stop mode, when an attached process encounters an event that
+would otherwise be reported with a stop reply, it uses the asynchronous
+notification mechanism (*note Notification Packets::) to inform GDB.  In
+contrast to all-stop mode, where all threads in all processes are
+stopped when a stop reply is sent, in non-stop mode only the thread
+reporting the stop event is stopped.  That is, when reporting a 'S' or
+'T' response to indicate completion of a step operation, hitting a
+breakpoint, or a fault, only the affected thread is stopped; any other
+still-running threads continue to run.  When reporting a 'W' or 'X'
+response, all running threads belonging to other attached processes
+continue to run.
+
+   In non-stop mode, the target shall respond to the '?' packet as
+follows.  First, any incomplete stop reply notification/'vStopped'
+sequence in progress is abandoned.  The target must begin a new sequence
+reporting stop events for all stopped threads, whether or not it has
+previously reported those events to GDB.  The first stop reply is sent
+as a synchronous reply to the '?' packet, and subsequent stop replies
+are sent as responses to 'vStopped' packets using the mechanism
+described above.  The target must not send asynchronous stop reply
+notifications until the sequence is complete.  If all threads are
+running when the target receives the '?' packet, or if the target is not
+attached to any process, it shall respond 'OK'.
+
+   If the stub supports non-stop mode, it should also support the
+'swbreak' stop reason if software breakpoints are supported, and the
+'hwbreak' stop reason if hardware breakpoints are supported (*note
+swbreak stop reason::).  This is because given the asynchronous nature
+of non-stop mode, between the time a thread hits a breakpoint and the
+time the event is finally processed by GDB, the breakpoint may have
+already been removed from the target.  Due to this, GDB needs to be able
+to tell whether a trap stop was caused by a delayed breakpoint event,
+which should be ignored, as opposed to a random trap signal, which
+should be reported to the user.  Note the 'swbreak' feature implies that
+the target is responsible for adjusting the PC when a software
+breakpoint triggers, if necessary, such as on the x86 architecture.
+
+
 File: gdb.info,  Node: Packet Acknowledgment,  Next: Examples,  Prev: Remote Non-Stop,  Up: Remote Protocol
 
-E.11 Packet Acknowledgment
+E.12 Packet Acknowledgment
 ==========================
 
 By default, when either the host or the target machine receives a
@@ -79,7 +407,7 @@ re-enable the acknowledgments for the current connection, once disabled.
 
 File: gdb.info,  Node: Examples,  Next: File-I/O Remote Protocol Extension,  Prev: Packet Acknowledgment,  Up: Remote Protocol
 
-E.12 Examples
+E.13 Examples
 =============
 
 Example sequence of a target being re-started.  Notice how the restart
@@ -110,7 +438,7 @@ does not get any direct output:
 
 File: gdb.info,  Node: File-I/O Remote Protocol Extension,  Next: Library List Format,  Prev: Examples,  Up: Remote Protocol
 
-E.13 File-I/O Remote Protocol Extension
+E.14 File-I/O Remote Protocol Extension
 =======================================
 
 * Menu:
@@ -129,7 +457,7 @@ E.13 File-I/O Remote Protocol Extension
 
 File: gdb.info,  Node: File-I/O Overview,  Next: Protocol Basics,  Up: File-I/O Remote Protocol Extension
 
-E.13.1 File-I/O Overview
+E.14.1 File-I/O Overview
 ------------------------
 
 The "File I/O remote protocol extension" (short: File-I/O) allows the
@@ -176,7 +504,7 @@ not supported by this protocol.
 
 File: gdb.info,  Node: Protocol Basics,  Next: The F Request Packet,  Prev: File-I/O Overview,  Up: File-I/O Remote Protocol Extension
 
-E.13.2 Protocol Basics
+E.14.2 Protocol Basics
 ----------------------
 
 The File-I/O protocol uses the 'F' packet as the request as well as
@@ -233,7 +561,7 @@ continues the latest continue or step action.
 
 File: gdb.info,  Node: The F Request Packet,  Next: The F Reply Packet,  Prev: Protocol Basics,  Up: File-I/O Remote Protocol Extension
 
-E.13.3 The 'F' Request Packet
+E.14.3 The 'F' Request Packet
 -----------------------------
 
 The 'F' request packet has the following format:
@@ -255,7 +583,7 @@ The 'F' request packet has the following format:
 
 File: gdb.info,  Node: The F Reply Packet,  Next: The Ctrl-C Message,  Prev: The F Request Packet,  Up: File-I/O Remote Protocol Extension
 
-E.13.4 The 'F' Reply Packet
+E.14.4 The 'F' Reply Packet
 ---------------------------
 
 The 'F' reply packet has the following format:
@@ -284,14 +612,14 @@ The 'F' reply packet has the following format:
 
 File: gdb.info,  Node: The Ctrl-C Message,  Next: Console I/O,  Prev: The F Reply Packet,  Up: File-I/O Remote Protocol Extension
 
-E.13.5 The 'Ctrl-C' Message
+E.14.5 The 'Ctrl-C' Message
 ---------------------------
 
 If the 'Ctrl-C' flag is set in the GDB reply packet (*note The F Reply
 Packet::), the target should behave as if it had gotten a break message.
 The meaning for the target is "system call interrupted by 'SIGINT'".
-Consequentially, the target should actually stop (as with a break
-message) and return to GDB with a 'T02' packet.
+Consequently, the target should actually stop (as with a break message)
+and return to GDB with a 'T02' packet.
 
    It's important for the target to know in which state the system call
 was interrupted.  There are two possible cases:
@@ -319,7 +647,7 @@ been completed.
 
 File: gdb.info,  Node: Console I/O,  Next: List of Supported Calls,  Prev: The Ctrl-C Message,  Up: File-I/O Remote Protocol Extension
 
-E.13.6 Console I/O
+E.14.6 Console I/O
 ------------------
 
 By default and if not explicitly closed by the target system, the file
@@ -347,7 +675,7 @@ is stopped at the user's request.
 
 File: gdb.info,  Node: List of Supported Calls,  Next: Protocol-specific Representation of Datatypes,  Prev: Console I/O,  Up: File-I/O Remote Protocol Extension
 
-E.13.7 List of Supported Calls
+E.14.7 List of Supported Calls
 ------------------------------
 
 * Menu:
@@ -839,7 +1167,7 @@ system-call-allowed 1' command.
 
 File: gdb.info,  Node: Protocol-specific Representation of Datatypes,  Next: Constants,  Prev: List of Supported Calls,  Up: File-I/O Remote Protocol Extension
 
-E.13.8 Protocol-specific Representation of Datatypes
+E.14.8 Protocol-specific Representation of Datatypes
 ----------------------------------------------------
 
 * Menu:
@@ -990,7 +1318,7 @@ this structure is of size 8 bytes.
 
 File: gdb.info,  Node: Constants,  Next: File-I/O Examples,  Prev: Protocol-specific Representation of Datatypes,  Up: File-I/O Remote Protocol Extension
 
-E.13.9 Constants
+E.14.9 Constants
 ----------------
 
 The following values are used for the constants inside of the protocol.
@@ -1101,7 +1429,7 @@ All values are given in decimal representation.
 
 File: gdb.info,  Node: File-I/O Examples,  Prev: Constants,  Up: File-I/O Remote Protocol Extension
 
-E.13.10 File-I/O Examples
+E.14.10 File-I/O Examples
 -------------------------
 
 Example sequence of a write call, file descriptor 3, buffer is at target
@@ -1146,7 +1474,7 @@ on host is called:
 
 File: gdb.info,  Node: Library List Format,  Next: Library List Format for SVR4 Targets,  Prev: File-I/O Remote Protocol Extension,  Up: Remote Protocol
 
-E.14 Library List Format
+E.15 Library List Format
 ========================
 
 On some platforms, a dynamic loader (e.g. 'ld.so') runs in the same
@@ -1213,7 +1541,7 @@ section for each library.
 
 File: gdb.info,  Node: Library List Format for SVR4 Targets,  Next: Memory Map Format,  Prev: Library List Format,  Up: Remote Protocol
 
-E.15 Library List Format for SVR4 Targets
+E.16 Library List Format for SVR4 Targets
 =========================================
 
 On SVR4 platforms GDB can use the symbol table of a dynamic loader (e.g.
@@ -1272,7 +1600,7 @@ prelink), looks like this:
 
 File: gdb.info,  Node: Memory Map Format,  Next: Thread List Format,  Prev: Library List Format for SVR4 Targets,  Up: Remote Protocol
 
-E.16 Memory Map Format
+E.17 Memory Map Format
 ======================
 
 To be able to write into flash memory, GDB needs to obtain a memory map
@@ -1340,7 +1668,7 @@ packets to write to addresses in such ranges.
 
 File: gdb.info,  Node: Thread List Format,  Next: Traceframe Info Format,  Prev: Memory Map Format,  Up: Remote Protocol
 
-E.17 Thread List Format
+E.18 Thread List Format
 =======================
 
 To efficiently update the list of threads and their attributes, GDB
@@ -1349,7 +1677,7 @@ obtains the XML document with the following structure:
 
      <?xml version="1.0"?>
      <threads>
-         <thread id="id" core="0" name="name">
+         <thread id="id" core="0" name="name" handle="1a2b3c">
          ... description ...
          </thread>
      </threads>
@@ -1365,7 +1693,7 @@ present, is a hex encoded representation of the thread handle.
 
 File: gdb.info,  Node: Traceframe Info Format,  Next: Branch Trace Format,  Prev: Thread List Format,  Up: Remote Protocol
 
-E.18 Traceframe Info Format
+E.19 Traceframe Info Format
 ===========================
 
 To be able to know which objects in the inferior can be examined when
@@ -1415,7 +1743,7 @@ info discovery.  *Note Expat::.
 
 File: gdb.info,  Node: Branch Trace Format,  Next: Branch Trace Configuration Format,  Prev: Traceframe Info Format,  Up: Remote Protocol
 
-E.19 Branch Trace Format
+E.20 Branch Trace Format
 ========================
 
 In order to display the branch trace of an inferior thread, GDB needs to
@@ -1468,7 +1796,7 @@ info discovery.  *Note Expat::.
 
 File: gdb.info,  Node: Branch Trace Configuration Format,  Prev: Branch Trace Format,  Up: Remote Protocol
 
-E.20 Branch Trace Configuration Format
+E.21 Branch Trace Configuration Format
 ======================================
 
 For each inferior thread, GDB can obtain the branch trace configuration
@@ -3813,7 +4141,7 @@ respected.
   1. The file header.  This is a sequence of values, of 'offset_type'
      unless otherwise noted:
 
-       1. The version number, currently 8.  Versions 1, 2 and 3 are
+       1. The version number, currently 9.  Versions 1, 2 and 3 are
           obsolete.  Version 4 uses a different hashing function from
           versions 5 and 6.  Version 6 includes symbols for inlined
           functions, whereas versions 4 and 5 do not.  Version 7 adds
@@ -3821,6 +4149,8 @@ respected.
           specifies that symbols from DWARF type units
           ('DW_TAG_type_unit') refer to the type unit's symbol table and
           not the compilation unit ('DW_TAG_comp_unit') using the type.
+          Version 9 adds the name and the language of the main function
+          to the index.
 
           GDB will only read version 4, 5, or 6 indices by specifying
           'set use-deprecated-index-sections on'.  GDB has a workaround
@@ -3837,7 +4167,9 @@ respected.
 
        5. The offset, from the start of the file, of the symbol table.
 
-       6. The offset, from the start of the file, of the constant pool.
+       6. The offset, from the start of the file, of the shortcut table.
+
+       7. The offset, from the start of the file, of the constant pool.
 
   2. The CU list.  This is a sequence of pairs of 64-bit little-endian
      values, sorted by the CU offset.  The first element in each pair is
@@ -3900,7 +4232,20 @@ respected.
      algorithm; if you intend to create new index sections, you must
      read the code.
 
-  6. The constant pool.  This is simply a bunch of bytes.  It is
+  6. The shortcut table This is a data structure with the following
+     fields:
+
+     Language of main
+          An 'offset_type' value indicating the language of the main
+          function as a 'DW_LANG_' constant.  This value will be zero if
+          main function information is not present.
+
+     Name of main
+          An 'offset_type' value indicating the offset of the main
+          function's name in the constant pool.  This value must be
+          ignored if the value for the language of main is zero.
+
+  7. The constant pool.  This is simply a bunch of bytes.  It is
      organized so that alignment is correct: CU vectors are stored
      first, followed by strings.
 
@@ -3946,8 +4291,8 @@ Bit 31
      This bit is zero if the value is global and one if it is static.
 
      The determination of whether a symbol is global or static is
-     complicated.  The authorative reference is the file 'dwarf2read.c'
-     in GDB sources.
+     complicated.  The authoritative reference is the file
+     'dwarf2read.c' in GDB sources.
 
    This pseudo-code describes the computation of a symbol's kind and
 global/static attributes in the index.
@@ -4506,15 +4851,24 @@ looks something like 'Connection refused'.
 
           target> gdbserver --multi COMM
 
-'--debug'
+'--debug[=option1,option2,...]'
      Instruct 'gdbserver' to display extra status information about the
      debugging process.  This option is intended for 'gdbserver'
      development and for bug reports to the developers.
 
-'--remote-debug'
-     Instruct 'gdbserver' to display remote protocol debug output.  This
-     option is intended for 'gdbserver' development and for bug reports
-     to the developers.
+     Each OPTION is the name of a component for which debugging should
+     be enabled.  The list of possible options is 'all', 'threads',
+     'event-loop', 'remote'.  The special option 'all' enables all
+     components.  The option list is processed left to right, and an
+     option can be prefixed with the '-' character to disable output for
+     that component, so you could write:
+
+          target> gdbserver --debug=all,-event-loop
+
+     to turn on debug output for all components except 'event-loop'.  If
+     no options are passed to '--debug' then this is treated as
+     equivalent to '--debug=threads'.  This could change in future
+     releases of 'gdbserver'.
 
 '--debug-file=FILENAME'
      Instruct 'gdbserver' to send any debug output to the given
@@ -5861,8 +6215,8 @@ Concept Index
 * --core:                                File Options.       (line   48)
 * --data-directory:                      Mode Options.       (line   95)
 * --debug, gdbserver option:             Server.             (line  146)
-* --debug-file, gdbserver option:        Server.             (line  148)
-* --debug-format, gdbserver option:      Server.             (line  153)
+* --debug-file, gdbserver option:        Server.             (line  174)
+* --debug-format, gdbserver option:      Server.             (line  178)
 * --directory:                           File Options.       (line   92)
 * --early-init-command:                  File Options.       (line   82)
 * --early-init-eval-command:             File Options.       (line   87)
@@ -5881,10 +6235,9 @@ Concept Index
 * --quiet:                               Mode Options.       (line   23)
 * --readnever, command-line option:      File Options.       (line  102)
 * --readnow:                             File Options.       (line   96)
-* --remote-debug, gdbserver option:      Server.             (line  147)
 * --return-child-result:                 Mode Options.       (line   63)
 * --se:                                  File Options.       (line   44)
-* --selftest:                            Server.             (line  187)
+* --selftest:                            Server.             (line  212)
 * --silent:                              Mode Options.       (line   23)
 * --statistics:                          Mode Options.       (line  165)
 * --symbols:                             File Options.       (line   36)
@@ -5894,8 +6247,8 @@ Concept Index
 * --windows:                             Mode Options.       (line   86)
 * --with-gdb-datadir:                    Data Files.         (line   19)
 * --with-relocated-sources:              Source Path.        (line  149)
-* --with-sysroot:                        Files.              (line  463)
-* --wrapper, gdbserver option:           Server.             (line  166)
+* --with-sysroot:                        Files.              (line  478)
+* --wrapper, gdbserver option:           Server.             (line  191)
 * --write:                               Mode Options.       (line  160)
 * -b:                                    Mode Options.       (line  129)
 * -c:                                    File Options.       (line   48)
@@ -5916,7 +6269,7 @@ Concept Index
 * -p:                                    File Options.       (line   52)
 * -q:                                    Mode Options.       (line   23)
 * -r:                                    File Options.       (line   96)
-* -readnever, option for symbol-file command: Files.         (line  101)
+* -readnever, option for symbol-file command: Files.         (line  110)
 * -s:                                    File Options.       (line   36)
 * -t:                                    Mode Options.       (line  138)
 * -w:                                    Mode Options.       (line   86)
@@ -5928,6 +6281,7 @@ Concept Index
                                                              (line    6)
 * .debug_gdb_scripts section:            dotdebug_gdb_scripts section.
                                                              (line    6)
+* .debug_names section:                  Debug Names.        (line    6)
 * .gdbinit:                              Initialization Files.
                                                              (line  107)
 * .gdb_index section:                    Index Files.        (line    6)
@@ -5938,7 +6292,7 @@ Concept Index
                                                              (line   86)
 * .note.gnu.build-id sections:           Separate Debug Files.
                                                              (line  102)
-* .o files, reading symbols from:        Files.              (line  146)
+* .o files, reading symbols from:        Files.              (line  158)
 * /proc:                                 Process Information.
                                                              (line    6)
 * <architecture>:                        Target Description Format.
@@ -5999,10 +6353,10 @@ Concept Index
 * aliases for commands:                  Aliases.            (line    6)
 * aliases for commands, default arguments: Command aliases default args.
                                                              (line    6)
-* alignment of remote memory accesses:   Packets.            (line  258)
+* alignment of remote memory accesses:   Packets.            (line  247)
 * all-stop mode:                         All-Stop Mode.      (line    6)
 * Alpha stack:                           MIPS.               (line    6)
-* always-read-ctf:                       Symbols.            (line  761)
+* always-read-ctf:                       Symbols.            (line  763)
 * ambiguous expressions:                 Ambiguous Expressions.
                                                              (line    6)
 * AMD GPU debugging info:                Debugging Output.   (line   38)
@@ -6057,7 +6411,7 @@ Concept Index
                                                              (line   15)
 * asynchronous execution, and process record and replay: Process Record and Replay.
                                                              (line  101)
-* AT&T disassembly flavor:               Machine Code.       (line  266)
+* AT&T disassembly flavor:               Machine Code.       (line  273)
 * attach:                                Attach.             (line    6)
 * attach to a program, gdbserver:        Server.             (line   86)
 * auto-loading:                          Auto-loading.       (line    6)
@@ -6081,20 +6435,20 @@ Concept Index
 * automatic thread selection:            All-Stop Mode.      (line   28)
 * auxiliary vector:                      OS Information.     (line    9)
 * AVR:                                   AVR.                (line    6)
-* b packet:                              Packets.            (line   77)
-* B packet:                              Packets.            (line   92)
+* b packet:                              Packets.            (line   75)
+* B packet:                              Packets.            (line   90)
 * background execution:                  Background Execution.
                                                              (line    6)
 * background execution <1>:              Asynchronous and non-stop modes.
                                                              (line   15)
 * backtrace beyond main function:        Backtrace.          (line  155)
 * backtrace limit:                       Backtrace.          (line  192)
-* base name differences:                 Files.              (line  530)
+* base name differences:                 Files.              (line  545)
 * baud rate for remote targets:          Remote Configuration.
                                                              (line   21)
-* bc packet:                             Packets.            (line   97)
+* bc packet:                             Packets.            (line   95)
 * bcache statistics:                     Maintenance Commands.
-                                                             (line  435)
+                                                             (line  439)
 * bits in remote address:                Remote Configuration.
                                                              (line   12)
 * blocks in guile:                       Blocks In Guile.    (line    6)
@@ -6120,7 +6474,7 @@ Concept Index
 * breakpoint commands for GDB/MI:        GDB/MI Breakpoint Commands.
                                                              (line    6)
 * breakpoint commands, in remote protocol: General Query Packets.
-                                                             (line 1059)
+                                                             (line 1051)
 * breakpoint conditions:                 Conditions.         (line    6)
 * breakpoint debugging info:             Debugging Output.   (line  326)
 * breakpoint kinds, ARM:                 ARM Breakpoint Kinds.
@@ -6149,7 +6503,7 @@ Concept Index
 * breakpoints in python:                 Breakpoints In Python.
                                                              (line    6)
 * breakpoints, multiple locations:       Set Breaks.         (line  311)
-* bs packet:                             Packets.            (line  103)
+* bs packet:                             Packets.            (line  101)
 * bug criteria:                          Bug Criteria.       (line    6)
 * bug reports:                           Bug Reporting.      (line    6)
 * bugs in GDB:                           GDB Bugs.           (line    6)
@@ -6166,8 +6520,8 @@ Concept Index
 * C and C++ constants:                   C Constants.        (line    6)
 * C and C++ defaults:                    C Defaults.         (line    6)
 * C and C++ operators:                   C Operators.        (line    6)
-* c packet:                              Packets.            (line  110)
-* C packet:                              Packets.            (line  119)
+* c packet:                              Packets.            (line  108)
+* C packet:                              Packets.            (line  117)
 * C++:                                   C.                  (line   10)
 * C++ compilers:                         C Plus Plus Expressions.
                                                              (line    8)
@@ -6185,8 +6539,9 @@ Concept Index
 * caching of bfd objects:                File Caching.       (line    6)
 * caching of opened files:               File Caching.       (line    6)
 * call dummy stack unwinding:            Calling.            (line   36)
+* call dummy stack unwinding on timeout.: Calling.           (line   65)
 * call dummy stack unwinding on unhandled exception.: Calling.
-                                                             (line   47)
+                                                             (line   53)
 * call overloaded functions:             C Plus Plus Expressions.
                                                              (line   26)
 * call stack:                            Stack.              (line    9)
@@ -6194,7 +6549,7 @@ Concept Index
 * call-clobbered registers:              Registers.          (line  106)
 * caller-saved registers:                Registers.          (line  106)
 * calling functions:                     Calling.            (line    6)
-* calling functions in the program, disabling: Calling.      (line   59)
+* calling functions in the program, disabling: Calling.      (line   76)
 * calling make:                          Shell Commands.     (line   25)
 * case sensitivity in symbol names:      Symbols.            (line   27)
 * case-insensitive symbol names:         Symbols.            (line   27)
@@ -6203,13 +6558,15 @@ Concept Index
 * catch Ada exceptions:                  Set Catchpoints.    (line   66)
 * catch Ada exceptions when handled:     Set Catchpoints.    (line   92)
 * catch syscalls from inferior, remote request: General Query Packets.
-                                                             (line  474)
+                                                             (line  439)
 * catchpoints:                           Breakpoints.        (line   30)
 * catchpoints, setting:                  Set Catchpoints.    (line    6)
 * change GDB's working directory:        Working Directory.  (line   32)
 * change inferior's working directory:   Working Directory.  (line   13)
 * character sets:                        Character Sets.     (line    6)
 * charset:                               Character Sets.     (line    6)
+* check if a given address is in a memory tagged region: General Query Packets.
+                                                             (line  332)
 * checkpoint:                            Checkpoint/Restart. (line    6)
 * checkpoints and process id:            Checkpoint/Restart. (line   76)
 * checks, range:                         Type Checking.      (line   44)
@@ -6320,7 +6677,7 @@ Concept Index
 * CRIS:                                  CRIS.               (line    6)
 * CRIS mode:                             CRIS.               (line   26)
 * CRIS version:                          CRIS.               (line   10)
-* CTF info, when to read:                Symbols.            (line  761)
+* CTF info, when to read:                Symbols.            (line  763)
 * Ctrl-BREAK, MS-Windows:                Cygwin Native.      (line    9)
 * ctrl-c message, in file-i/o protocol:  The Ctrl-C Message. (line    6)
 * current Ada task ID:                   Ada Tasks.          (line  119)
@@ -6333,8 +6690,8 @@ Concept Index
 * Cygwin DLL, debugging:                 Cygwin Native.      (line   60)
 * Cygwin-specific commands:              Cygwin Native.      (line    6)
 * D:                                     D.                  (line    6)
-* d packet:                              Packets.            (line  128)
-* D packet:                              Packets.            (line  135)
+* d packet:                              Packets.            (line  126)
+* D packet:                              Packets.            (line  133)
 * DAP:                                   Interpreters.       (line   26)
 * Darwin:                                Darwin.             (line    6)
 * data breakpoints:                      Breakpoints.        (line   17)
@@ -6373,7 +6730,7 @@ Concept Index
 * debuginfod verbosity:                  Debuginfod Settings.
                                                              (line   41)
 * debuginfod, maintenance commands:      Maintenance Commands.
-                                                             (line  237)
+                                                             (line  241)
 * decimal floating point format:         Decimal Floating Point.
                                                              (line    6)
 * default behavior of commands, changing: Command Settings.  (line    6)
@@ -6381,9 +6738,9 @@ Concept Index
 * default data directory:                Data Files.         (line   19)
 * default settings, changing:            Command Settings.   (line    6)
 * default source path substitution:      Source Path.        (line  149)
-* default system root:                   Files.              (line  463)
+* default system root:                   Files.              (line  478)
 * define trace state variable, remote request: Tracepoint Packets.
-                                                             (line  121)
+                                                             (line  117)
 * defining macros interactively:         Macros.             (line   60)
 * definition of a macro, showing:        Macros.             (line   47)
 * delete breakpoints:                    Delete Breaks.      (line   56)
@@ -6392,14 +6749,14 @@ Concept Index
 * deliver a signal to a program:         Signaling.          (line    6)
 * demangle:                              Symbols.            (line  127)
 * demangler crashes:                     Maintenance Commands.
-                                                             (line  186)
+                                                             (line  190)
 * demangler crashes <1>:                 Maintenance Commands.
-                                                             (line  213)
+                                                             (line  217)
 * demangler crashes <2>:                 Maintenance Commands.
-                                                             (line  245)
+                                                             (line  249)
 * demangling C++ names:                  Print Settings.     (line  568)
 * deprecated commands:                   Maintenance Commands.
-                                                             (line  200)
+                                                             (line  204)
 * derived type of an object, printing:   Print Settings.     (line  599)
 * descriptor tables display:             DJGPP Native.       (line   24)
 * detach from task, GNU Hurd:            Hurd Native.        (line   59)
@@ -6409,16 +6766,16 @@ Concept Index
 * directory, compilation:                Source Path.        (line   40)
 * directory, current:                    Source Path.        (line   40)
 * disable address space randomization, remote request: General Query Packets.
-                                                             (line   84)
-* disabling calling functions in the program: Calling.       (line   59)
+                                                             (line   82)
+* disabling calling functions in the program: Calling.       (line   76)
 * disassembler in Python, global vs. specific: Disassembly In Python.
                                                              (line  466)
-* disassembler options:                  Machine Code.       (line  251)
+* disassembler options:                  Machine Code.       (line  258)
 * disconnected tracing:                  Starting and Stopping Trace Experiments.
                                                              (line   45)
 * displaced stepping debugging info:     Debugging Output.   (line  111)
 * displaced stepping support:            Maintenance Commands.
-                                                             (line  152)
+                                                             (line  156)
 * displaced stepping, and process record and replay: Process Record and Replay.
                                                              (line   96)
 * display command history:               Command History.    (line  110)
@@ -6438,7 +6795,7 @@ Concept Index
 * don't repeat Guile command:            Commands In Guile.  (line   67)
 * don't repeat Python command:           CLI Commands In Python.
                                                              (line   42)
-* DOS file-name semantics of file names.: Files.             (line  486)
+* DOS file-name semantics of file names.: Files.             (line  501)
 * DOS serial data link, remote debugging: DJGPP Native.      (line  118)
 * DOS serial port status:                DJGPP Native.       (line  139)
 * DPMI:                                  DJGPP Native.       (line    6)
@@ -6450,14 +6807,14 @@ Concept Index
 * dump/restore files:                    Dump/Restore Files. (line    6)
 * DVC register:                          PowerPC Embedded.   (line    6)
 * DWARF compilation units cache:         Maintenance Commands.
-                                                             (line  513)
+                                                             (line  517)
 * DWARF DIEs:                            Debugging Output.   (line   89)
 * DWARF frame unwinders:                 Maintenance Commands.
-                                                             (line  527)
+                                                             (line  548)
 * DWARF Line Tables:                     Debugging Output.   (line   95)
 * DWARF Reading:                         Debugging Output.   (line  103)
 * DWARF-2 CFI and CRIS:                  CRIS.               (line   18)
-* dynamic linking:                       Files.              (line  123)
+* dynamic linking:                       Files.              (line  132)
 * dynamic printf:                        Dynamic Printf.     (line    6)
 * dynamic varobj:                        GDB/MI Variable Objects.
                                                              (line  163)
@@ -6473,7 +6830,7 @@ Concept Index
 * ELinOS system-wide configuration script: System-wide Configuration Scripts.
                                                              (line   15)
 * Emacs:                                 Emacs.              (line    6)
-* empty response, for unsupported packets: Overview.         (line   97)
+* empty response, for unsupported packets: Standard Replies. (line   11)
 * enable debuginfod:                     Debuginfod Settings.
                                                              (line   10)
 * enable/disable a breakpoint:           Disabling.          (line    6)
@@ -6503,7 +6860,7 @@ Concept Index
 * execute commands from a file:          Command Files.      (line   17)
 * execute forward or backward in time:   Reverse Execution.  (line   92)
 * execute remote command, remote request: General Query Packets.
-                                                             (line  609)
+                                                             (line  613)
 * execution, foreground, background and asynchronous: Background Execution.
                                                              (line    6)
 * execution, foreground, background and asynchronous <1>: Asynchronous and non-stop modes.
@@ -6527,7 +6884,7 @@ Concept Index
 * extend GDB for remote targets:         Connecting.         (line  279)
 * extending GDB:                         Extending GDB.      (line    6)
 * extra signal information:              Signals.            (line  158)
-* F packet:                              Packets.            (line  151)
+* F packet:                              Packets.            (line  147)
 * F reply packet:                        The F Reply Packet. (line    6)
 * F request packet:                      The F Request Packet.
                                                              (line    6)
@@ -6537,10 +6894,11 @@ Concept Index
 * fatal signal:                          Bug Criteria.       (line    9)
 * fatal signals:                         Signals.            (line   15)
 * features of the remote protocol:       General Query Packets.
-                                                             (line  663)
+                                                             (line  656)
 * fetch memory tags:                     General Query Packets.
-                                                             (line  342)
-* file name canonicalization:            Files.              (line  530)
+                                                             (line  312)
+* file name canonicalization:            Files.              (line  545)
+* file names, quoting and escaping:      Filename Arguments. (line    6)
 * file transfer:                         File Transfer.      (line    6)
 * file transfer, remote protocol:        Host I/O Packets.   (line    6)
 * file-i/o examples:                     File-I/O Examples.  (line    6)
@@ -6601,15 +6959,15 @@ Concept Index
 * functions and variables by Fortran module: Symbols.        (line  589)
 * functions without line info, and stepping: Continuing and Stepping.
                                                              (line   92)
-* g packet:                              Packets.            (line  156)
-* G packet:                              Packets.            (line  194)
+* g packet:                              Packets.            (line  152)
+* G packet:                              Packets.            (line  187)
 * g++, GNU C++ compiler:                 C.                  (line   10)
 * garbled pointers:                      DJGPP Native.       (line   42)
 * GCC and C++:                           C Plus Plus Expressions.
                                                              (line    8)
 * GDB bugs, reporting:                   Bug Reporting.      (line    6)
 * GDB internal error:                    Maintenance Commands.
-                                                             (line  245)
+                                                             (line  249)
 * gdb module:                            Basic Python.       (line   31)
 * gdb objects:                           GDB Scheme Data Types.
                                                              (line    6)
@@ -6654,8 +7012,8 @@ Concept Index
                                                              (line  107)
 * gdbserver, command-line arguments:     Server.             (line   34)
 * gdbserver, connecting:                 Connecting.         (line    6)
-* gdbserver, search path for libthread_db: Server.           (line  254)
-* gdbserver, send all debug output to a single file: Server. (line  148)
+* gdbserver, search path for libthread_db: Server.           (line  295)
+* gdbserver, send all debug output to a single file: Server. (line  174)
 * gdbserver, target extended-remote mode: Connecting.        (line    6)
 * gdbserver, target remote mode:         Connecting.         (line    6)
 * gdbserver, types of connections:       Connecting.         (line    6)
@@ -6663,9 +7021,9 @@ Concept Index
 * general initialization:                Initialization Files.
                                                              (line   30)
 * get thread information block address:  General Query Packets.
-                                                             (line  303)
+                                                             (line  281)
 * get thread-local storage address, remote request: General Query Packets.
-                                                             (line  271)
+                                                             (line  257)
 * gettimeofday, file-i/o system call:    gettimeofday.       (line    6)
 * getting structure elements using gdb.Field objects as subscripts: Values From Inferior.
                                                              (line   40)
@@ -6706,11 +7064,11 @@ Concept Index
 * guile, working with types:             Types In Guile.     (line    6)
 * guile, working with values from inferior: Values From Inferior In Guile.
                                                              (line    6)
-* H packet:                              Packets.            (line  204)
+* H packet:                              Packets.            (line  195)
 * handling signals:                      Signals.            (line   27)
 * hardware breakpoints:                  Set Breaks.         (line  172)
 * hardware debug registers:              Maintenance Commands.
-                                                             (line  577)
+                                                             (line  598)
 * hardware watchpoints:                  Set Watchpoints.    (line   31)
 * hash mark while downloading:           Target Commands.    (line   98)
 * heuristic-fence-post (Alpha, MIPS):    MIPS.               (line   14)
@@ -6730,8 +7088,8 @@ Concept Index
 * Host I/O, remote protocol:             Host I/O Packets.   (line    6)
 * how many arguments (user-defined commands): Define.        (line   25)
 * HPPA support:                          HPPA.               (line    6)
-* i packet:                              Packets.            (line  218)
-* I packet:                              Packets.            (line  223)
+* i packet:                              Packets.            (line  207)
+* I packet:                              Packets.            (line  212)
 * i/o:                                   Input/Output.       (line    6)
 * I/O registers (Atmel AVR):             AVR.                (line   10)
 * i386:                                  Remote Stub.        (line   56)
@@ -6745,6 +7103,7 @@ Concept Index
 * incomplete type:                       Symbols.            (line  367)
 * indentation in structure display:      Print Settings.     (line  475)
 * index files:                           Index Files.        (line    6)
+* index files <1>:                       Debug Names.        (line    6)
 * index section format:                  Index Section Format.
                                                              (line    6)
 * inferior:                              Inferiors Connections and Programs.
@@ -6760,9 +7119,9 @@ Concept Index
                                                              (line    6)
 * infinite recursion in user-defined commands: Define.       (line  135)
 * info for known .debug_gdb_scripts-loaded scripts: Maintenance Commands.
-                                                             (line  428)
+                                                             (line  432)
 * info for known object files:           Maintenance Commands.
-                                                             (line  413)
+                                                             (line  417)
 * info line, repeated calls:             Machine Code.       (line   41)
 * info proc cmdline:                     Process Information.
                                                              (line   41)
@@ -6796,7 +7155,7 @@ Concept Index
 * integral datatypes, in file-i/o protocol: Integral Datatypes.
                                                              (line    6)
 * Intel:                                 Remote Stub.        (line   56)
-* Intel disassembly flavor:              Machine Code.       (line  266)
+* Intel disassembly flavor:              Machine Code.       (line  273)
 * Intel Memory Protection Extensions (MPX).: x86.            (line   21)
 * Intel MPX boundary violations:         Signals.            (line  199)
 * Intel Processor Trace:                 Process Record and Replay.
@@ -6806,7 +7165,7 @@ Concept Index
 * internal commands:                     Maintenance Commands.
                                                              (line    6)
 * internal errors, control of GDB behavior: Maintenance Commands.
-                                                             (line  245)
+                                                             (line  249)
 * internal GDB breakpoints:              Set Breaks.         (line  483)
 * interrupt:                             Quitting GDB.       (line   15)
 * interrupt debuggee on MS-Windows:      Cygwin Native.      (line    9)
@@ -6829,7 +7188,7 @@ Concept Index
 * just-in-time compilation:              JIT Interface.      (line    6)
 * just-in-time compilation, debugging messages: Debugging Output.
                                                              (line  184)
-* k packet:                              Packets.            (line  227)
+* k packet:                              Packets.            (line  216)
 * kernel crash dump:                     BSD libkvm Interface.
                                                              (line    6)
 * kernel memory image:                   BSD libkvm Interface.
@@ -6868,7 +7227,7 @@ Concept Index
 * linespec locations:                    Linespec Locations. (line    6)
 * Linux native targets:                  Debugging Output.   (line  189)
 * list active threads, remote request:   General Query Packets.
-                                                             (line  238)
+                                                             (line  224)
 * list of supported file-i/o calls:      List of Supported Calls.
                                                              (line    6)
 * list output in GDB/MI:                 GDB/MI Output Syntax.
@@ -6880,8 +7239,8 @@ Concept Index
 * listing mapped overlays:               Overlay Commands.   (line   60)
 * lists of breakpoints:                  Breakpoints.        (line   45)
 * load address, overlay's:               How Overlays Work.  (line    6)
-* load shared library:                   Files.              (line  337)
-* load symbols from memory:              Files.              (line  193)
+* load shared library:                   Files.              (line  352)
+* load symbols from memory:              Files.              (line  208)
 * local socket, target remote:           Connecting.         (line  147)
 * local variables:                       Symbols.            (line  436)
 * locate address:                        Output Formats.     (line   36)
@@ -6900,8 +7259,8 @@ Concept Index
                                                              (line  466)
 * lseek flags, in file-i/o protocol:     Lseek Flags.        (line    6)
 * lseek, file-i/o system call:           lseek.              (line    6)
-* m packet:                              Packets.            (line  250)
-* M packet:                              Packets.            (line  270)
+* m packet:                              Packets.            (line  239)
+* M packet:                              Packets.            (line  260)
 * m680x0:                                Remote Stub.        (line   59)
 * m68k-stub.c:                           Remote Stub.        (line   59)
 * Mach-O symbols processing:             Debugging Output.   (line  201)
@@ -6933,7 +7292,7 @@ Concept Index
 * memory address space mappings:         Process Information.
                                                              (line   80)
 * memory address space mappings <1>:     Maintenance Commands.
-                                                             (line  325)
+                                                             (line  329)
 * memory map format:                     Memory Map Format.  (line    6)
 * memory region attributes:              Memory Region Attributes.
                                                              (line    6)
@@ -6942,13 +7301,15 @@ Concept Index
 * memory tracing:                        Breakpoints.        (line   17)
 * memory transfer, in file-i/o protocol: Memory Transfer.    (line    6)
 * memory used by commands:               Maintenance Commands.
-                                                             (line  729)
-* memory used for symbol tables:         Files.              (line  325)
-* memory, alignment and size of remote accesses: Packets.    (line  258)
+                                                             (line  750)
+* memory used for symbol tables:         Files.              (line  340)
+* memory, alignment and size of remote accesses: Packets.    (line  247)
 * memory, viewing as typed object:       Expressions.        (line   41)
 * MI commands in python:                 GDB/MI Commands In Python.
                                                              (line    6)
 * mi interpreter:                        Interpreters.       (line   34)
+* MI notifications in python:            GDB/MI Notifications In Python.
+                                                             (line    6)
 * mi2 interpreter:                       Interpreters.       (line   42)
 * mi3 interpreter:                       Interpreters.       (line   39)
 * minimal language:                      Unsupported Languages.
@@ -6974,7 +7335,7 @@ Concept Index
 * Modula-2, GDB support:                 Modula-2.           (line    6)
 * module functions and variables:        Symbols.            (line  589)
 * modules:                               Symbols.            (line  581)
-* monitor commands, for gdbserver:       Server.             (line  218)
+* monitor commands, for gdbserver:       Server.             (line  243)
 * Motorola 680x0:                        Remote Stub.        (line   59)
 * MS Windows debugging:                  Cygwin Native.      (line    6)
 * MS-DOS system info:                    DJGPP Native.       (line   19)
@@ -6987,7 +7348,7 @@ Concept Index
 * multiple-symbols menu:                 Ambiguous Expressions.
                                                              (line   51)
 * multiprocess extensions, in remote protocol: General Query Packets.
-                                                             (line  989)
+                                                             (line  981)
 * name a thread:                         Threads.            (line  254)
 * names of symbols:                      Symbols.            (line   14)
 * namespace in C++:                      C Plus Plus Expressions.
@@ -6998,27 +7359,29 @@ Concept Index
                                                              (line    6)
 * native target:                         Target Commands.    (line   85)
 * negative breakpoint numbers:           Set Breaks.         (line  483)
-* never read symbols:                    Files.              (line  101)
+* never read symbols:                    Files.              (line  110)
 * New SYSTAG message:                    Threads.            (line   35)
 * new user interface:                    Interpreters.       (line   73)
 * Newlib OS ABI and its influence on the longjmp handling: ABI.
                                                              (line   11)
 * Nios II architecture:                  Nios II.            (line    6)
-* no debug info functions:               Calling.            (line  106)
+* no debug info functions:               Calling.            (line  181)
 * no debug info variables:               Variables.          (line  142)
 * non-member C++ functions, set breakpoint in: Set Breaks.   (line  224)
 * non-stop mode:                         Non-Stop Mode.      (line    6)
 * non-stop mode, and process record and replay: Process Record and Replay.
                                                              (line  101)
 * non-stop mode, and set displaced-stepping: Maintenance Commands.
-                                                             (line  169)
+                                                             (line  173)
 * non-stop mode, remote request:         General Query Packets.
-                                                             (line  452)
+                                                             (line  425)
 * noninvasive task options:              Hurd Native.        (line   72)
 * notation, readline:                    Readline Bare Essentials.
                                                              (line    6)
 * notational conventions, for GDB/MI:    GDB/MI.             (line   52)
 * notification packets:                  Notification Packets.
+                                                             (line    6)
+* notifications in python, GDB/MI:       GDB/MI Notifications In Python.
                                                              (line    6)
 * notify output in GDB/MI:               GDB/MI Output Syntax.
                                                              (line  102)
@@ -7027,7 +7390,7 @@ Concept Index
 * number of string characters to print:  Print Settings.     (line  159)
 * number representation:                 Numbers.            (line    6)
 * numbers for breakpoints:               Breakpoints.        (line   38)
-* object files, relocatable, reading symbols from: Files.    (line  146)
+* object files, relocatable, reading symbols from: Files.    (line  158)
 * Objective-C:                           Objective-C.        (line    6)
 * Objective-C, classes and selectors:    Symbols.            (line  609)
 * Objective-C, print objects:            The Print Command with Objective-C.
@@ -7068,7 +7431,7 @@ Concept Index
 * OS ABI:                                ABI.                (line   11)
 * OS information:                        OS Information.     (line    6)
 * out-of-line single-stepping:           Maintenance Commands.
-                                                             (line  152)
+                                                             (line  156)
 * outermost frame:                       Frames.             (line   12)
 * output formats:                        Output Formats.     (line    6)
 * output syntax of GDB/MI:               GDB/MI Output Syntax.
@@ -7086,14 +7449,14 @@ Concept Index
                                                              (line   15)
 * overloading, Ada:                      Overloading support for Ada.
                                                              (line    6)
-* p packet:                              Packets.            (line  282)
-* P packet:                              Packets.            (line  295)
+* p packet:                              Packets.            (line  270)
+* P packet:                              Packets.            (line  279)
 * packet acknowledgment, for GDB remote: Packet Acknowledgment.
                                                              (line    6)
 * packet size, remote protocol:          General Query Packets.
-                                                             (line  895)
+                                                             (line  887)
 * packet size, remote, configuring:      Remote Configuration.
-                                                             (line  343)
+                                                             (line  347)
 * packets, notification:                 Notification Packets.
                                                              (line    6)
 * packets, reporting on stdout:          Debugging Output.   (line  236)
@@ -7111,9 +7474,9 @@ Concept Index
 * Pascal objects, static members display: Print Settings.    (line  628)
 * Pascal support in GDB, limitations:    Pascal.             (line    6)
 * pass signals to inferior, remote request: General Query Packets.
-                                                             (line  513)
+                                                             (line  471)
 * patching binaries:                     Patching.           (line    6)
-* patching object files:                 Files.              (line   26)
+* patching object files:                 Files.              (line   29)
 * pause current task (GNU Hurd):         Hurd Native.        (line   48)
 * pause current thread (GNU Hurd):       Hurd Native.        (line   90)
 * pauses in output:                      Screen Size.        (line    6)
@@ -7129,7 +7492,7 @@ Concept Index
 * PowerPC architecture:                  PowerPC.            (line    6)
 * prefix for data files:                 Data Files.         (line    6)
 * prefix for executable and shared library file names: Files.
-                                                             (line  396)
+                                                             (line  411)
 * premature return from system calls:    Interrupted System Calls.
                                                              (line    6)
 * preprocessor macro expansion, showing the results of: Macros.
@@ -7184,7 +7547,7 @@ Concept Index
 * procfs API calls:                      Process Information.
                                                              (line  106)
 * profiling GDB:                         Maintenance Commands.
-                                                             (line  561)
+                                                             (line  582)
 * program counter register:              Registers.          (line   31)
 * program entry point:                   Backtrace.          (line  155)
 * programming in guile:                  Guile API.          (line    6)
@@ -7193,7 +7556,7 @@ Concept Index
                                                              (line    6)
 * progspaces in python:                  Progspaces In Python.
                                                              (line    6)
-* prologue-end:                          Symbols.            (line  792)
+* prologue-end:                          Symbols.            (line  794)
 * prompt:                                Prompt.             (line    6)
 * protocol basics, file-i/o:             Protocol Basics.    (line    6)
 * protocol, GDB remote serial:           Overview.           (line   14)
@@ -7220,6 +7583,8 @@ Concept Index
                                                              (line    6)
 * python module:                         Basic Python.       (line   31)
 * python modules:                        Python modules.     (line    6)
+* python notifications, GDB/MI:          GDB/MI Notifications In Python.
+                                                             (line    6)
 * python pagination:                     Basic Python.       (line    6)
 * python parameters:                     Parameters In Python.
                                                              (line    6)
@@ -7229,105 +7594,111 @@ Concept Index
 * python stdout:                         Basic Python.       (line    6)
 * Python TUI Windows:                    TUI Windows In Python.
                                                              (line    6)
+* python, handle missing debug information: Missing Debug Info In Python.
+                                                             (line    6)
 * Python, working with types:            Types In Python.    (line    6)
 * python, working with values from inferior: Values From Inferior.
                                                              (line    6)
-* q packet:                              Packets.            (line  307)
-* Q packet:                              Packets.            (line  307)
+* q packet:                              Packets.            (line  289)
+* Q packet:                              Packets.            (line  289)
 * QAllow packet:                         General Query Packets.
                                                              (line   44)
 * qAttached packet:                      General Query Packets.
-                                                             (line 1475)
+                                                             (line 1453)
 * qC packet:                             General Query Packets.
                                                              (line   55)
 * QCatchSyscalls packet:                 General Query Packets.
-                                                             (line  474)
+                                                             (line  439)
 * qCRC packet:                           General Query Packets.
                                                              (line   65)
 * QDisableRandomization packet:          General Query Packets.
-                                                             (line   84)
+                                                             (line   82)
 * QEnvironmentHexEncoded packet:         General Query Packets.
-                                                             (line  144)
+                                                             (line  130)
 * QEnvironmentReset packet:              General Query Packets.
-                                                             (line  197)
+                                                             (line  183)
 * QEnvironmentUnset packet:              General Query Packets.
-                                                             (line  173)
+                                                             (line  159)
 * qfThreadInfo packet:                   General Query Packets.
-                                                             (line  238)
+                                                             (line  224)
 * qGetTIBAddr packet:                    General Query Packets.
-                                                             (line  303)
+                                                             (line  281)
 * qGetTLSAddr packet:                    General Query Packets.
-                                                             (line  271)
+                                                             (line  257)
+* qIsAddressTagged packet:               General Query Packets.
+                                                             (line  332)
 * qMemTags packet:                       General Query Packets.
-                                                             (line  342)
+                                                             (line  312)
 * QMemTags packet:                       General Query Packets.
-                                                             (line  370)
+                                                             (line  350)
 * QNonStop packet:                       General Query Packets.
-                                                             (line  452)
+                                                             (line  425)
 * qOffsets packet:                       General Query Packets.
-                                                             (line  415)
+                                                             (line  388)
 * qP packet:                             General Query Packets.
-                                                             (line  442)
+                                                             (line  415)
 * QPassSignals packet:                   General Query Packets.
-                                                             (line  513)
+                                                             (line  471)
 * QProgramSignals packet:                General Query Packets.
-                                                             (line  542)
+                                                             (line  492)
 * qRcmd packet:                          General Query Packets.
-                                                             (line  609)
+                                                             (line  613)
 * qSearch memory packet:                 General Query Packets.
-                                                             (line  632)
+                                                             (line  634)
 * QSetWorkingDir packet:                 General Query Packets.
-                                                             (line  219)
+                                                             (line  205)
 * QStartNoAckMode packet:                General Query Packets.
-                                                             (line  649)
+                                                             (line  645)
 * QStartupWithShell packet:              General Query Packets.
-                                                             (line  114)
+                                                             (line  104)
 * qsThreadInfo packet:                   General Query Packets.
-                                                             (line  238)
+                                                             (line  224)
 * qSupported packet:                     General Query Packets.
-                                                             (line  663)
+                                                             (line  656)
 * qSymbol packet:                        General Query Packets.
                                                              (line 1119)
-* qTBuffer packet:                       Tracepoint Packets. (line  393)
-* QTBuffer size packet:                  Tracepoint Packets. (line  406)
-* QTDisable packet:                      Tracepoint Packets. (line  209)
-* QTDisconnected packet:                 Tracepoint Packets. (line  228)
+* qTBuffer packet:                       Tracepoint Packets. (line  380)
+* QTBuffer size packet:                  Tracepoint Packets. (line  393)
+* QTDisable packet:                      Tracepoint Packets. (line  202)
+* QTDisconnected packet:                 Tracepoint Packets. (line  221)
 * QTDP packet:                           Tracepoint Packets. (line   10)
-* QTDPsrc packet:                        Tracepoint Packets. (line   90)
-* QTDV packet:                           Tracepoint Packets. (line  121)
-* QTEnable packet:                       Tracepoint Packets. (line  204)
-* qTfP packet:                           Tracepoint Packets. (line  335)
-* QTFrame packet:                        Tracepoint Packets. (line  133)
-* qTfSTM packet:                         Tracepoint Packets. (line  352)
-* qTfV packet:                           Tracepoint Packets. (line  343)
+* QTDPsrc packet:                        Tracepoint Packets. (line   86)
+* QTDV packet:                           Tracepoint Packets. (line  117)
+* QTEnable packet:                       Tracepoint Packets. (line  197)
+* qTfP packet:                           Tracepoint Packets. (line  328)
+* QTFrame packet:                        Tracepoint Packets. (line  129)
+* qTfSTM packet:                         Tracepoint Packets. (line  345)
+* qTfV packet:                           Tracepoint Packets. (line  336)
 * QThreadEvents packet:                  General Query Packets.
-                                                             (line  582)
+                                                             (line  524)
 * qThreadExtraInfo packet:               General Query Packets.
                                                              (line 1162)
-* QTinit packet:                         Tracepoint Packets. (line  214)
-* qTMinFTPILen packet:                   Tracepoint Packets. (line  171)
-* QTNotes packet:                        Tracepoint Packets. (line  411)
-* qTP packet:                            Tracepoint Packets. (line  307)
-* QTro packet:                           Tracepoint Packets. (line  217)
-* QTSave packet:                         Tracepoint Packets. (line  387)
-* qTsP packet:                           Tracepoint Packets. (line  336)
-* qTsSTM packet:                         Tracepoint Packets. (line  352)
-* QTStart packet:                        Tracepoint Packets. (line  195)
-* qTStatus packet:                       Tracepoint Packets. (line  234)
-* qTSTMat packet:                        Tracepoint Packets. (line  381)
-* QTStop packet:                         Tracepoint Packets. (line  201)
-* qTsV packet:                           Tracepoint Packets. (line  344)
-* qTV packet:                            Tracepoint Packets. (line  318)
+* QThreadOptions packet:                 General Query Packets.
+                                                             (line  548)
+* QTinit packet:                         Tracepoint Packets. (line  207)
+* qTMinFTPILen packet:                   Tracepoint Packets. (line  167)
+* QTNotes packet:                        Tracepoint Packets. (line  398)
+* qTP packet:                            Tracepoint Packets. (line  300)
+* QTro packet:                           Tracepoint Packets. (line  210)
+* QTSave packet:                         Tracepoint Packets. (line  374)
+* qTsP packet:                           Tracepoint Packets. (line  329)
+* qTsSTM packet:                         Tracepoint Packets. (line  345)
+* QTStart packet:                        Tracepoint Packets. (line  188)
+* qTStatus packet:                       Tracepoint Packets. (line  227)
+* qTSTMat packet:                        Tracepoint Packets. (line  368)
+* QTStop packet:                         Tracepoint Packets. (line  194)
+* qTsV packet:                           Tracepoint Packets. (line  337)
+* qTV packet:                            Tracepoint Packets. (line  311)
 * qualified thread ID:                   Threads.            (line   52)
 * query attached, remote request:        General Query Packets.
-                                                             (line 1475)
+                                                             (line 1453)
 * quotes in commands:                    Completion.         (line   94)
 * quoting Ada internal identifiers:      Additions to Ada.   (line   86)
 * quoting names:                         Symbols.            (line   14)
 * qXfer packet:                          General Query Packets.
                                                              (line 1199)
-* r packet:                              Packets.            (line  311)
-* R packet:                              Packets.            (line  316)
+* r packet:                              Packets.            (line  293)
+* R packet:                              Packets.            (line  298)
 * range checking:                        Type Checking.      (line   45)
 * range stepping:                        Continuing and Stepping.
                                                              (line  217)
@@ -7339,9 +7710,9 @@ Concept Index
 * read special object, remote request:   General Query Packets.
                                                              (line 1199)
 * read, file-i/o system call:            read.               (line    6)
-* read-only sections:                    Files.              (line  275)
-* reading symbols from relocatable object files: Files.      (line  146)
-* reading symbols immediately:           Files.              (line   94)
+* read-only sections:                    Files.              (line  290)
+* reading symbols from relocatable object files: Files.      (line  158)
+* reading symbols immediately:           Files.              (line  103)
 * readline:                              Editing.            (line    6)
 * Readline application name:             Editing.            (line   29)
 * receive rights, GNU Hurd:              Hurd Native.        (line   84)
@@ -7363,7 +7734,7 @@ Concept Index
 * reference declarations:                C Plus Plus Expressions.
                                                              (line   50)
 * register cache, flushing:              Maintenance Commands.
-                                                             (line  395)
+                                                             (line  399)
 * register packet format, MIPS:          MIPS Register packet Format.
                                                              (line    6)
 * registers:                             Registers.          (line    6)
@@ -7371,7 +7742,7 @@ Concept Index
                                                              (line    6)
 * regular expression:                    Set Breaks.         (line  201)
 * reloading the overlay table:           Overlay Commands.   (line   52)
-* relocatable object files, reading symbols from: Files.     (line  146)
+* relocatable object files, reading symbols from: Files.     (line  158)
 * remote async notification debugging info: Debugging Output.
                                                              (line  208)
 * remote connection commands:            Connecting.         (line  127)
@@ -7384,6 +7755,7 @@ Concept Index
 * remote memory comparison:              Memory.             (line  159)
 * remote packets, enabling and disabling: Remote Configuration.
                                                              (line  159)
+* remote packets, standard replies:      Standard Replies.   (line    6)
 * remote programs, interrupting:         Connecting.         (line  246)
 * remote protocol debugging:             Debugging Output.   (line  236)
 * remote protocol, binary data:          Overview.           (line   63)
@@ -7422,11 +7794,11 @@ Concept Index
 * reprint the last value <1>:            Compiling and Injecting Code.
                                                              (line   74)
 * reset environment, remote request:     General Query Packets.
-                                                             (line  197)
+                                                             (line  183)
 * resolution of location spec:           Location Specifications.
                                                              (line   14)
 * resources used by commands:            Maintenance Commands.
-                                                             (line  641)
+                                                             (line  662)
 * response time, MIPS debugging:         MIPS.               (line   10)
 * restart:                               Checkpoint/Restart. (line    6)
 * restore data from a file:              Dump/Restore Files. (line    6)
@@ -7434,7 +7806,7 @@ Concept Index
 * result records in GDB/MI:              GDB/MI Result Records.
                                                              (line    6)
 * resume threads of multiple processes simultaneously: All-Stop Mode.
-                                                             (line   66)
+                                                             (line   68)
 * resuming execution:                    Continuing and Stepping.
                                                              (line    6)
 * returning from a function:             Returning.          (line    6)
@@ -7446,8 +7818,8 @@ Concept Index
                                                              (line  124)
 * running:                               Starting.           (line    6)
 * running programs backward:             Reverse Execution.  (line    6)
-* s packet:                              Packets.            (line  323)
-* S packet:                              Packets.            (line  332)
+* s packet:                              Packets.            (line  305)
+* S packet:                              Packets.            (line  314)
 * S12Z support:                          S12Z.               (line    6)
 * save breakpoints to a file for future sessions: Save Breakpoints.
                                                              (line    9)
@@ -7469,10 +7841,10 @@ Concept Index
 * search path for libthread_db:          Threads.            (line  300)
 * searching memory:                      Searching Memory.   (line    6)
 * searching memory, in remote debugging: General Query Packets.
-                                                             (line  632)
+                                                             (line  634)
 * searching source files:                Search.             (line    6)
 * section offsets, remote request:       General Query Packets.
-                                                             (line  415)
+                                                             (line  388)
 * segment descriptor tables:             DJGPP Native.       (line   24)
 * select Ctrl-C, BREAK or BREAK-g:       Remote Configuration.
                                                              (line  108)
@@ -7483,11 +7855,11 @@ Concept Index
 * selecting python pretty-printers:      Selecting Pretty-Printers.
                                                              (line    6)
 * self tests:                            Maintenance Commands.
-                                                             (line  475)
+                                                             (line  479)
 * self tests <1>:                        Maintenance Commands.
-                                                             (line  481)
-* self tests <2>:                        Maintenance Commands.
                                                              (line  485)
+* self tests <2>:                        Maintenance Commands.
+                                                             (line  489)
 * semaphores on static probe points:     Static Probe Points.
                                                              (line   20)
 * send command to remote monitor:        Connecting.         (line  279)
@@ -7512,7 +7884,7 @@ Concept Index
 * set breakpoints in many functions:     Set Breaks.         (line  201)
 * set breakpoints on all functions:      Set Breaks.         (line  228)
 * set environment variable, remote request: General Query Packets.
-                                                             (line  144)
+                                                             (line  130)
 * set exec-file-mismatch:                Attach.             (line   34)
 * set fast tracepoint:                   Create and Delete Tracepoints.
                                                              (line   50)
@@ -7524,13 +7896,13 @@ Concept Index
 * set tracepoint:                        Create and Delete Tracepoints.
                                                              (line    6)
 * set working directory, remote request: General Query Packets.
-                                                             (line  219)
+                                                             (line  205)
 * setting variables:                     Assignment.         (line    6)
 * setting watchpoints:                   Set Watchpoints.    (line    6)
 * settings:                              Command Settings.   (line   39)
 * SH:                                    Remote Stub.        (line   62)
 * sh-stub.c:                             Remote Stub.        (line   62)
-* shared libraries:                      Files.              (line  297)
+* shared libraries:                      Files.              (line  312)
 * shared library events, remote reply:   Stop Reply Packets. (line   65)
 * shell command, exit code:              Convenience Vars.   (line  192)
 * shell command, exit signal:            Convenience Vars.   (line  192)
@@ -7541,17 +7913,17 @@ Concept Index
 * show inferior's working directory:     Working Directory.  (line   27)
 * show last commands:                    Command History.    (line  110)
 * show screen characteristics:           Maintenance Commands.
-                                                             (line  725)
+                                                             (line  746)
 * show tdesc filename:                   Retrieving Descriptions.
                                                              (line   25)
 * signals:                               Signals.            (line    6)
 * signals the inferior may see, remote request: General Query Packets.
-                                                             (line  542)
+                                                             (line  492)
 * SIGQUIT signal, dump core of GDB:      Maintenance Commands.
-                                                             (line  209)
+                                                             (line  213)
 * SingleKey keymap name:                 TUI Single Key Mode.
-                                                             (line   53)
-* size of remote memory accesses:        Packets.            (line  258)
+                                                             (line   71)
+* size of remote memory accesses:        Packets.            (line  247)
 * size of screen:                        Screen Size.        (line    6)
 * skipping over files via glob-style patterns: Skipping Over Functions and Files.
                                                              (line   55)
@@ -7564,7 +7936,7 @@ Concept Index
 * snapshot of a process:                 Checkpoint/Restart. (line    6)
 * software watchpoints:                  Set Watchpoints.    (line   31)
 * source code, caching:                  Maintenance Commands.
-                                                             (line  402)
+                                                             (line  406)
 * source code, disable access:           Disable Reading Source.
                                                              (line    6)
 * source file and line of a symbol:      Print Settings.     (line   50)
@@ -7588,13 +7960,14 @@ Concept Index
 * stack pointer register:                Registers.          (line   31)
 * stacking targets:                      Active Targets.     (line    6)
 * standard registers:                    Registers.          (line   31)
+* standard responses for remote packets: Standard Replies.   (line    6)
 * start a new independent interpreter:   Interpreters.       (line   57)
 * start a new trace experiment:          Starting and Stopping Trace Experiments.
                                                              (line    6)
 * starting:                              Starting.           (line    6)
 * startup code, and backtrace:           Backtrace.          (line  155)
 * startup with shell, remote request:    General Query Packets.
-                                                             (line  114)
+                                                             (line  104)
 * stat, file-i/o system call:            stat/fstat.         (line    6)
 * static members of C++ objects:         Print Settings.     (line  617)
 * static members of Pascal objects:      Print Settings.     (line  628)
@@ -7604,7 +7977,7 @@ Concept Index
                                                              (line    6)
 * static tracepoints:                    Set Tracepoints.    (line   28)
 * static tracepoints, in remote protocol: General Query Packets.
-                                                             (line 1037)
+                                                             (line 1029)
 * static tracepoints, setting:           Create and Delete Tracepoints.
                                                              (line   75)
 * status of trace data collection:       Starting and Stopping Trace Experiments.
@@ -7622,11 +7995,11 @@ Concept Index
 * stop reply packets:                    Stop Reply Packets. (line    6)
 * stopped threads:                       Thread Stops.       (line    6)
 * store memory tags:                     General Query Packets.
-                                                             (line  370)
+                                                             (line  350)
 * stream records in GDB/MI:              GDB/MI Stream Records.
                                                              (line    6)
 * string tracing, in remote protocol:    General Query Packets.
-                                                             (line 1054)
+                                                             (line 1046)
 * struct gdb_reader_funcs:               Writing JIT Debug Info Readers.
                                                              (line   22)
 * struct gdb_symbol_callbacks:           Writing JIT Debug Info Readers.
@@ -7645,16 +8018,16 @@ Concept Index
 * supported GDB/MI features, list:       GDB/MI Support Commands.
                                                              (line   54)
 * supported packets, remote query:       General Query Packets.
-                                                             (line  663)
+                                                             (line  656)
 * svg:                                   AArch64.            (line   88)
 * svl:                                   AArch64.            (line   81)
 * svq:                                   AArch64.            (line   85)
 * switching threads:                     Threads.            (line    6)
 * switching threads automatically:       All-Stop Mode.      (line   28)
-* symbol cache size:                     Symbols.            (line  768)
-* symbol cache, flushing:                Symbols.            (line  784)
-* symbol cache, printing its contents:   Symbols.            (line  776)
-* symbol cache, printing usage statistics: Symbols.          (line  780)
+* symbol cache size:                     Symbols.            (line  770)
+* symbol cache, flushing:                Symbols.            (line  786)
+* symbol cache, printing its contents:   Symbols.            (line  778)
+* symbol cache, printing usage statistics: Symbols.          (line  782)
 * symbol decoding style, C++:            Print Settings.     (line  587)
 * symbol dump:                           Symbols.            (line  658)
 * symbol file functions:                 Debugging Output.   (line  284)
@@ -7674,21 +8047,21 @@ Concept Index
 * symbol, source file and line:          Print Settings.     (line   50)
 * symbols in guile:                      Symbols In Guile.   (line    6)
 * symbols in python:                     Symbols In Python.  (line    6)
-* symbols, never read:                   Files.              (line  101)
-* symbols, reading from relocatable object files: Files.     (line  146)
-* symbols, reading immediately:          Files.              (line   94)
+* symbols, never read:                   Files.              (line  110)
+* symbols, reading from relocatable object files: Files.     (line  158)
+* symbols, reading immediately:          Files.              (line  103)
 * Synopsys ARC:                          ARC.                (line    6)
-* syscall DSO:                           Files.              (line  193)
+* syscall DSO:                           Files.              (line  208)
 * system calls and thread breakpoints:   Interrupted System Calls.
                                                              (line    6)
-* system root, alternate:                Files.              (line  396)
+* system root, alternate:                Files.              (line  411)
 * system, file-i/o system call:          system.             (line    6)
 * system-wide configuration scripts:     System-wide Configuration Scripts.
                                                              (line    6)
 * system-wide init file:                 System-wide configuration.
                                                              (line    6)
-* t packet:                              Packets.            (line  342)
-* T packet:                              Packets.            (line  347)
+* t packet:                              Packets.            (line  324)
+* T packet:                              Packets.            (line  329)
 * T packet reply:                        Stop Reply Packets. (line   26)
 * tail call frames, debugging:           Tail Call Frames.   (line    6)
 * target architecture:                   Targets.            (line   17)
@@ -7735,7 +8108,7 @@ Concept Index
 * target output in GDB/MI:               GDB/MI Output Syntax.
                                                              (line  110)
 * target stack description:              Maintenance Commands.
-                                                             (line  448)
+                                                             (line  452)
 * target-assisted range stepping:        Continuing and Stepping.
                                                              (line  217)
 * task attributes (GNU Hurd):            Hurd Native.        (line   48)
@@ -7754,19 +8127,22 @@ Concept Index
                                                              (line   10)
 * thread breakpoints and system calls:   Interrupted System Calls.
                                                              (line    6)
-* thread create event, remote reply:     Stop Reply Packets. (line  152)
+* thread clone events, remote reply:     Stop Reply Packets. (line  152)
+* thread create event, remote reply:     Stop Reply Packets. (line  161)
 * thread create/exit events, remote request: General Query Packets.
-                                                             (line  582)
+                                                             (line  524)
 * thread default settings, GNU Hurd:     Hurd Native.        (line  130)
-* thread exit event, remote reply:       Stop Reply Packets. (line  181)
+* thread exit event, remote reply:       Stop Reply Packets. (line  190)
 * thread ID lists:                       Threads.            (line   65)
 * thread identifier (GDB):               Threads.            (line   47)
 * thread identifier (system):            Threads.            (line   35)
 * thread info (Solaris):                 Threads.            (line  174)
 * thread information, remote request:    General Query Packets.
-                                                             (line  442)
+                                                             (line  415)
 * thread list format:                    Thread List Format. (line    6)
 * thread number, per inferior:           Threads.            (line   47)
+* thread options, remote request:        General Query Packets.
+                                                             (line  548)
 * thread properties, GNU Hurd:           Hurd Native.        (line   90)
 * thread suspend count, GNU Hurd:        Hurd Native.        (line  109)
 * THREAD-ID, in remote protocol:         Packets.            (line   20)
@@ -7777,9 +8153,13 @@ Concept Index
 * threads, continuing:                   Thread Stops.       (line    6)
 * threads, stopped:                      Thread Stops.       (line    6)
 * time of command execution:             Maintenance Commands.
-                                                             (line  733)
+                                                             (line  754)
+* timeout for called functions:          Calling.            (line  138)
+* timeout for called functions <1>:      Calling.            (line  151)
+* timeout for called functions <2>:      Calling.            (line  160)
+* timeout for called functions <3>:      Calling.            (line  175)
 * timeout for commands:                  Maintenance Commands.
-                                                             (line  823)
+                                                             (line  844)
 * timeout for serial communications:     Remote Configuration.
                                                              (line   72)
 * timeout, for remote target connection: Remote Configuration.
@@ -7790,7 +8170,7 @@ Concept Index
 * trace file format:                     Trace File Format.  (line    6)
 * trace files:                           Trace Files.        (line    6)
 * trace state variable value, remote request: Tracepoint Packets.
-                                                             (line  318)
+                                                             (line  311)
 * trace state variables:                 Trace State Variables.
                                                              (line    6)
 * traceback:                             Backtrace.          (line    6)
@@ -7809,11 +8189,11 @@ Concept Index
                                                              (line    6)
 * tracepoint restrictions:               Tracepoint Restrictions.
                                                              (line    6)
-* tracepoint status, remote request:     Tracepoint Packets. (line  307)
+* tracepoint status, remote request:     Tracepoint Packets. (line  300)
 * tracepoint variables:                  Tracepoint Variables.
                                                              (line    6)
 * tracepoints:                           Tracepoints.        (line    6)
-* tracepoints support in gdbserver:      Server.             (line  272)
+* tracepoints support in gdbserver:      Server.             (line  313)
 * trailing underscore, in Fortran symbols: Fortran.          (line    9)
 * translating between character sets:    Character Sets.     (line    6)
 * TUI:                                   TUI.                (line    6)
@@ -7825,7 +8205,7 @@ Concept Index
                                                              (line    6)
 * type casting memory:                   Expressions.        (line   41)
 * type chain of a data type:             Maintenance Commands.
-                                                             (line  460)
+                                                             (line  464)
 * type checking:                         Checks.             (line   24)
 * type conversions in C++:               C Plus Plus Expressions.
                                                              (line   26)
@@ -7840,24 +8220,26 @@ Concept Index
 * unknown address, locating:             Output Formats.     (line   36)
 * unknown type:                          Symbols.            (line  384)
 * unlink, file-i/o system call:          unlink.             (line    6)
-* unlinked object files:                 Files.              (line   26)
-* unload symbols from shared libraries:  Files.              (line  358)
+* unlinked object files:                 Files.              (line   29)
+* unload symbols from shared libraries:  Files.              (line  373)
 * unmap an overlay:                      Overlay Commands.   (line   39)
 * unmapped overlays:                     How Overlays Work.  (line    6)
 * unset environment variable, remote request: General Query Packets.
-                                                             (line  173)
+                                                             (line  159)
 * unset tdesc filename:                  Retrieving Descriptions.
                                                              (line   21)
 * unsupported languages:                 Unsupported Languages.
                                                              (line    6)
+* unsupported packets, empty response for: Standard Replies. (line   11)
 * unwind stack in called functions:      Calling.            (line   36)
+* unwind stack in called functions when timing out: Calling. (line   65)
 * unwind stack in called functions with unhandled exceptions: Calling.
-                                                             (line   47)
+                                                             (line   53)
 * unwinding frames in Python:            Unwinding Frames in Python.
                                                              (line    6)
 * use only software watchpoints:         Set Watchpoints.    (line  111)
 * user registers:                        Maintenance Commands.
-                                                             (line  419)
+                                                             (line  423)
 * user-defined command:                  Define.             (line    6)
 * user-defined macros:                   Macros.             (line   60)
 * user-defined variables:                Convenience Vars.   (line    6)
@@ -7874,37 +8256,37 @@ Concept Index
 * variables, readline:                   Readline Init File Syntax.
                                                              (line   34)
 * variables, setting:                    Assignment.         (line   16)
-* vAttach packet:                        Packets.            (line  361)
-* vCont packet:                          Packets.            (line  379)
-* vCont? packet:                         Packets.            (line  446)
-* vCtrlC packet:                         Packets.            (line  456)
+* vAttach packet:                        Packets.            (line  341)
+* vCont packet:                          Packets.            (line  357)
+* vCont? packet:                         Packets.            (line  424)
+* vCtrlC packet:                         Packets.            (line  432)
 * vector unit:                           Vector Unit.        (line    6)
 * vector, auxiliary:                     OS Information.     (line    9)
 * verbose operation:                     Messages/Warnings.  (line    6)
 * verify remote memory image:            Memory.             (line  159)
 * verify target memory image:            Memory.             (line  159)
-* vFile packet:                          Packets.            (line  470)
-* vFlashDone packet:                     Packets.            (line  509)
-* vFlashErase packet:                    Packets.            (line  474)
-* vFlashWrite packet:                    Packets.            (line  489)
+* vFile packet:                          Packets.            (line  444)
+* vFlashDone packet:                     Packets.            (line  479)
+* vFlashErase packet:                    Packets.            (line  448)
+* vFlashWrite packet:                    Packets.            (line  461)
 * vfork events, remote reply:            Stop Reply Packets. (line  116)
 * vforkdone events, remote reply:        Stop Reply Packets. (line  128)
 * vg:                                    AArch64.            (line   41)
 * virtual functions (C++) display:       Print Settings.     (line  639)
-* vKill packet:                          Packets.            (line  516)
+* vKill packet:                          Packets.            (line  486)
 * vl:                                    AArch64.            (line   35)
-* vMustReplyEmpty packet:                Packets.            (line  528)
+* vMustReplyEmpty packet:                Packets.            (line  496)
 * volatile registers:                    Registers.          (line  106)
 * vq:                                    AArch64.            (line   38)
-* vRun packet:                           Packets.            (line  540)
-* vStopped packet:                       Packets.            (line  555)
+* vRun packet:                           Packets.            (line  508)
+* vStopped packet:                       Packets.            (line  521)
 * VTBL display:                          Print Settings.     (line  639)
 * watchdog timer:                        Maintenance Commands.
-                                                             (line  823)
+                                                             (line  844)
 * watchpoints:                           Breakpoints.        (line   17)
 * watchpoints and threads:               Set Watchpoints.    (line  182)
 * wavefronts:                            AMD GPU.            (line   40)
-* where to look for shared libraries:    Files.              (line  391)
+* where to look for shared libraries:    Files.              (line  406)
 * wild pointer, interpreting:            Print Settings.     (line   80)
 * Wind River Linux system-wide configuration script: System-wide Configuration Scripts.
                                                              (line   22)
@@ -7913,7 +8295,7 @@ Concept Index
 * working directory (of your program):   Working Directory.  (line    6)
 * working language:                      Languages.          (line   13)
 * write data into object, remote request: General Query Packets.
-                                                             (line 1432)
+                                                             (line 1421)
 * write, file-i/o system call:           write.              (line    6)
 * writing a frame filter:                Writing a Frame Filter.
                                                              (line    6)
@@ -7932,7 +8314,7 @@ Concept Index
 * writing xmethods in Python:            Writing an Xmethod. (line    6)
 * wrong values:                          Variables.          (line  106)
 * x command, default address:            Machine Code.       (line   35)
-* X packet:                              Packets.            (line  558)
+* X packet:                              Packets.            (line  524)
 * Xilinx MicroBlaze:                     MicroBlaze.         (line    6)
 * XInclude:                              Target Description Format.
                                                              (line   53)
@@ -7942,16 +8324,16 @@ Concept Index
 * XML parser debugging:                  Debugging Output.   (line  321)
 * yanking text:                          Readline Killing Commands.
                                                              (line    6)
-* z packet:                              Packets.            (line  571)
-* Z packets:                             Packets.            (line  571)
-* z0 packet:                             Packets.            (line  586)
-* Z0 packet:                             Packets.            (line  586)
-* z1 packet:                             Packets.            (line  641)
-* Z1 packet:                             Packets.            (line  641)
-* z2 packet:                             Packets.            (line  662)
-* Z2 packet:                             Packets.            (line  662)
-* z3 packet:                             Packets.            (line  675)
-* Z3 packet:                             Packets.            (line  675)
-* z4 packet:                             Packets.            (line  688)
-* Z4 packet:                             Packets.            (line  688)
+* z packet:                              Packets.            (line  535)
+* Z packets:                             Packets.            (line  535)
+* z0 packet:                             Packets.            (line  550)
+* Z0 packet:                             Packets.            (line  550)
+* z1 packet:                             Packets.            (line  601)
+* Z1 packet:                             Packets.            (line  601)
+* z2 packet:                             Packets.            (line  618)
+* Z2 packet:                             Packets.            (line  618)
+* z3 packet:                             Packets.            (line  627)
+* Z3 packet:                             Packets.            (line  627)
+* z4 packet:                             Packets.            (line  636)
+* Z4 packet:                             Packets.            (line  636)
 

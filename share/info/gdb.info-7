@@ -1,6 +1,6 @@
 This is gdb.info, produced by makeinfo version 6.8 from gdb.texinfo.
 
-Copyright (C) 1988-2023 Free Software Foundation, Inc.
+Copyright (C) 1988-2024 Free Software Foundation, Inc.
 
    Permission is granted to copy, distribute and/or modify this document
 under the terms of the GNU Free Documentation License, Version 1.3 or
@@ -21,9 +21,9 @@ END-INFO-DIR-ENTRY
    This file documents the GNU debugger GDB.
 
    This is the Tenth Edition, of 'Debugging with GDB: the GNU
-Source-Level Debugger' for GDB (GDB) Version 14.2.
+Source-Level Debugger' for GDB (GDB) Version 15.1.
 
-   Copyright (C) 1988-2023 Free Software Foundation, Inc.
+   Copyright (C) 1988-2024 Free Software Foundation, Inc.
 
    Permission is granted to copy, distribute and/or modify this document
 under the terms of the GNU Free Documentation License, Version 1.3 or
@@ -35,6 +35,566 @@ with the Back-Cover Texts as in (a) below.
    (a) The FSF's Back-Cover Text is: "You are free to copy and modify
 this GNU Manual.  Buying copies from GNU Press supports the FSF in
 developing GNU and promoting software freedom."
+
+
+File: gdb.info,  Node: Annotations,  Next: Debugger Adapter Protocol,  Prev: GDB/MI,  Up: Top
+
+28 GDB Annotations
+******************
+
+This chapter describes annotations in GDB.  Annotations were designed to
+interface GDB to graphical user interfaces or other similar programs
+which want to interact with GDB at a relatively high level.
+
+   The annotation mechanism has largely been superseded by GDB/MI (*note
+GDB/MI::).
+
+* Menu:
+
+* Annotations Overview::  What annotations are; the general syntax.
+* Server Prefix::       Issuing a command without affecting user state.
+* Prompting::           Annotations marking GDB's need for input.
+* Errors::              Annotations for error messages.
+* Invalidation::        Some annotations describe things now invalid.
+* Annotations for Running::
+                        Whether the program is running, how it stopped, etc.
+* Source Annotations::  Annotations describing source code.
+
+
+File: gdb.info,  Node: Annotations Overview,  Next: Server Prefix,  Up: Annotations
+
+28.1 What is an Annotation?
+===========================
+
+Annotations start with a newline character, two 'control-z' characters,
+and the name of the annotation.  If there is no additional information
+associated with this annotation, the name of the annotation is followed
+immediately by a newline.  If there is additional information, the name
+of the annotation is followed by a space, the additional information,
+and a newline.  The additional information cannot contain newline
+characters.
+
+   Any output not beginning with a newline and two 'control-z'
+characters denotes literal output from GDB.  Currently there is no need
+for GDB to output a newline followed by two 'control-z' characters, but
+if there was such a need, the annotations could be extended with an
+'escape' annotation which means those three characters as output.
+
+   The annotation LEVEL, which is specified using the '--annotate'
+command line option (*note Mode Options::), controls how much
+information GDB prints together with its prompt, values of expressions,
+source lines, and other types of output.  Level 0 is for no annotations,
+level 1 is for use when GDB is run as a subprocess of GNU Emacs, level 3
+is the maximum annotation suitable for programs that control GDB, and
+level 2 annotations have been made obsolete (*note Limitations of the
+Annotation Interface: (annotate)Limitations.).
+
+'set annotate LEVEL'
+     The GDB command 'set annotate' sets the level of annotations to the
+     specified LEVEL.
+
+'show annotate'
+     Show the current annotation level.
+
+   This chapter describes level 3 annotations.
+
+   A simple example of starting up GDB with annotations is:
+
+     $ gdb --annotate=3
+     GNU gdb 6.0
+     Copyright 2003 Free Software Foundation, Inc.
+     GDB is free software, covered by the GNU General Public License,
+     and you are welcome to change it and/or distribute copies of it
+     under certain conditions.
+     Type "show copying" to see the conditions.
+     There is absolutely no warranty for GDB.  Type "show warranty"
+     for details.
+     This GDB was configured as "i386-pc-linux-gnu"
+
+     ^Z^Zpre-prompt
+     (gdb)
+     ^Z^Zprompt
+     quit
+
+     ^Z^Zpost-prompt
+     $
+
+   Here 'quit' is input to GDB; the rest is output from GDB.  The three
+lines beginning '^Z^Z' (where '^Z' denotes a 'control-z' character) are
+annotations; the rest is output from GDB.
+
+
+File: gdb.info,  Node: Server Prefix,  Next: Prompting,  Prev: Annotations Overview,  Up: Annotations
+
+28.2 The Server Prefix
+======================
+
+If you prefix a command with 'server ' then it will not affect the
+command history, nor will it affect GDB's notion of which command to
+repeat if <RET> is pressed on a line by itself.  This means that
+commands can be run behind a user's back by a front-end in a transparent
+manner.
+
+   The 'server ' prefix does not affect the recording of values into the
+value history; to print a value without recording it into the value
+history, use the 'output' command instead of the 'print' command.
+
+   Using this prefix also disables confirmation requests (*note
+confirmation requests::).
+
+
+File: gdb.info,  Node: Prompting,  Next: Errors,  Prev: Server Prefix,  Up: Annotations
+
+28.3 Annotation for GDB Input
+=============================
+
+When GDB prompts for input, it annotates this fact so it is possible to
+know when to send output, when the output from a given command is over,
+etc.
+
+   Different kinds of input each have a different "input type".  Each
+input type has three annotations: a 'pre-' annotation, which denotes the
+beginning of any prompt which is being output, a plain annotation, which
+denotes the end of the prompt, and then a 'post-' annotation which
+denotes the end of any echo which may (or may not) be associated with
+the input.  For example, the 'prompt' input type features the following
+annotations:
+
+     ^Z^Zpre-prompt
+     ^Z^Zprompt
+     ^Z^Zpost-prompt
+
+   The input types are
+
+'prompt'
+     When GDB is prompting for a command (the main GDB prompt).
+
+'commands'
+     When GDB prompts for a set of commands, like in the 'commands'
+     command.  The annotations are repeated for each command which is
+     input.
+
+'overload-choice'
+     When GDB wants the user to select between various overloaded
+     functions.
+
+'query'
+     When GDB wants the user to confirm a potentially dangerous
+     operation.
+
+'prompt-for-continue'
+     When GDB is asking the user to press return to continue.  Note:
+     Don't expect this to work well; instead use 'set height 0' to
+     disable prompting.  This is because the counting of lines is buggy
+     in the presence of annotations.
+
+
+File: gdb.info,  Node: Errors,  Next: Invalidation,  Prev: Prompting,  Up: Annotations
+
+28.4 Errors
+===========
+
+     ^Z^Zquit
+
+   This annotation occurs right before GDB responds to an interrupt.
+
+     ^Z^Zerror
+
+   This annotation occurs right before GDB responds to an error.
+
+   Quit and error annotations indicate that any annotations which GDB
+was in the middle of may end abruptly.  For example, if a
+'value-history-begin' annotation is followed by a 'error', one cannot
+expect to receive the matching 'value-history-end'.  One cannot expect
+not to receive it either, however; an error annotation does not
+necessarily mean that GDB is immediately returning all the way to the
+top level.
+
+   A quit or error annotation may be preceded by
+
+     ^Z^Zerror-begin
+
+   Any output between that and the quit or error annotation is the error
+message.
+
+   Warning messages are not yet annotated.
+
+
+File: gdb.info,  Node: Invalidation,  Next: Annotations for Running,  Prev: Errors,  Up: Annotations
+
+28.5 Invalidation Notices
+=========================
+
+The following annotations say that certain pieces of state may have
+changed.
+
+'^Z^Zframes-invalid'
+
+     The frames (for example, output from the 'backtrace' command) may
+     have changed.
+
+'^Z^Zbreakpoints-invalid'
+
+     The breakpoints may have changed.  For example, the user just added
+     or deleted a breakpoint.
+
+
+File: gdb.info,  Node: Annotations for Running,  Next: Source Annotations,  Prev: Invalidation,  Up: Annotations
+
+28.6 Running the Program
+========================
+
+When the program starts executing due to a GDB command such as 'step' or
+'continue',
+
+     ^Z^Zstarting
+
+   is output.  When the program stops,
+
+     ^Z^Zstopped
+
+   is output.  Before the 'stopped' annotation, a variety of annotations
+describe how the program stopped.
+
+'^Z^Zexited EXIT-STATUS'
+     The program exited, and EXIT-STATUS is the exit status (zero for
+     successful exit, otherwise nonzero).
+
+'^Z^Zsignalled'
+     The program exited with a signal.  After the '^Z^Zsignalled', the
+     annotation continues:
+
+          INTRO-TEXT
+          ^Z^Zsignal-name
+          NAME
+          ^Z^Zsignal-name-end
+          MIDDLE-TEXT
+          ^Z^Zsignal-string
+          STRING
+          ^Z^Zsignal-string-end
+          END-TEXT
+
+     where NAME is the name of the signal, such as 'SIGILL' or
+     'SIGSEGV', and STRING is the explanation of the signal, such as
+     'Illegal Instruction' or 'Segmentation fault'.  The arguments
+     INTRO-TEXT, MIDDLE-TEXT, and END-TEXT are for the user's benefit
+     and have no particular format.
+
+'^Z^Zsignal'
+     The syntax of this annotation is just like 'signalled', but GDB is
+     just saying that the program received the signal, not that it was
+     terminated with it.
+
+'^Z^Zbreakpoint NUMBER'
+     The program hit breakpoint number NUMBER.
+
+'^Z^Zwatchpoint NUMBER'
+     The program hit watchpoint number NUMBER.
+
+
+File: gdb.info,  Node: Source Annotations,  Prev: Annotations for Running,  Up: Annotations
+
+28.7 Displaying Source
+======================
+
+The following annotation is used instead of displaying source code:
+
+     ^Z^Zsource FILENAME:LINE:CHARACTER:MIDDLE:ADDR
+
+   where FILENAME is an absolute file name indicating which source file,
+LINE is the line number within that file (where 1 is the first line in
+the file), CHARACTER is the character position within the file (where 0
+is the first character in the file) (for most debug formats this will
+necessarily point to the beginning of a line), MIDDLE is 'middle' if
+ADDR is in the middle of the line, or 'beg' if ADDR is at the beginning
+of the line, and ADDR is the address in the target program associated
+with the source which is being displayed.  The ADDR is in the form '0x'
+followed by one or more lowercase hex digits (note that this does not
+depend on the language).
+
+
+File: gdb.info,  Node: Debugger Adapter Protocol,  Next: JIT Interface,  Prev: Annotations,  Up: Top
+
+29 Debugger Adapter Protocol
+****************************
+
+The Debugger Adapter Protocol is a generic API that is used by some IDEs
+to communicate with debuggers.  It is documented at
+<https://microsoft.github.io/debug-adapter-protocol/>.
+
+   Generally, GDB implements the Debugger Adapter Protocol as written.
+However, in some cases, extensions are either needed or even expected.
+
+   GDB defines some parameters that can be passed to the 'launch'
+request:
+
+'args'
+     If provided, this should be an array of strings.  These strings are
+     provided as command-line arguments to the inferior, as if by 'set
+     args'.  *Note Arguments::.
+
+'cwd'
+     If provided, this should be a string.  GDB will change its working
+     directory to this directory, as if by the 'cd' command (*note
+     Working Directory::).  The launched program will inherit this as
+     its working directory.  Note that change of directory happens
+     before the 'program' parameter is processed.  This will affect the
+     result if 'program' is a relative filename.
+
+'env'
+     If provided, this should be an object.  Each key of the object will
+     be used as the name of an environment variable; each value must be
+     a string and will be the value of that variable.  The environment
+     of the inferior will be set to exactly as passed in.  *Note
+     Environment::.
+
+'program'
+     If provided, this is a string that specifies the program to use.
+     This corresponds to the 'file' command.  *Note Files::.
+
+'stopAtBeginningOfMainSubprogram'
+     If provided, this must be a boolean.  When 'True', GDB will set a
+     temporary breakpoint at the program's main procedure, using the
+     same approach as the 'start' command.  *Note Starting::.
+
+   GDB defines some parameters that can be passed to the 'attach'
+request.  Either 'pid' or 'target' must be specified, but if both are
+specified then 'target' will be ignored.
+
+'pid'
+     The process ID to which GDB should attach.  *Note Attach::.
+
+'program'
+     If provided, this is a string that specifies the program to use.
+     This corresponds to the 'file' command.  *Note Files::.  In some
+     cases, GDB can automatically determine which program is running.
+     However, for many remote targets, this is not the case, and so this
+     should be supplied.
+
+'target'
+     The target to which GDB should connect.  This is a string and is
+     passed to the 'target remote' command.  *Note Connecting::.
+
+   In response to the 'disassemble' request, DAP allows the client to
+return the bytes of each instruction in an implementation-defined
+format.  GDB implements this by sending a string with the bytes encoded
+in hex, like '"55a2b900"'.
+
+   When the 'repl' context is used for the 'evaluate' request, GDB
+evaluates the provided expression as a CLI command.
+
+   Evaluation in general can cause the inferior to continue execution.
+For example, evaluating the 'continue' command could do this, as could
+evaluating an expression that involves an inferior function call.
+
+   'repl' evaluation can also cause GDB to appear to stop responding to
+requests, for example if a CLI script does a lengthy computation.
+
+   Evaluations like this can be interrupted using the DAP 'cancel'
+request.  (In fact, 'cancel' should work for any request, but it is
+unlikely to be useful for most of them.)
+
+   GDB provides a couple of logging settings that can be used in DAP
+mode.  These can be set on the command line using the '-iex' option
+(*note File Options::).
+
+'set debug dap-log-file [FILENAME]'
+     Enable DAP logging.  Logs are written to FILENAME.  If no FILENAME
+     is given, logging is stopped.
+
+'set debug dap-log-level LEVEL'
+     Set the DAP logging level.  The default is '1', which logs the DAP
+     protocol, whatever debug messages the developers thought were
+     useful, and unexpected exceptions.  Level '2' can be used to log
+     all exceptions, including ones that are considered to be expected.
+     For example, a failure to parse an expression would be considered a
+     normal exception and not normally be logged.
+
+
+File: gdb.info,  Node: JIT Interface,  Next: In-Process Agent,  Prev: Debugger Adapter Protocol,  Up: Top
+
+30 JIT Compilation Interface
+****************************
+
+This chapter documents GDB's "just-in-time" (JIT) compilation interface.
+A JIT compiler is a program or library that generates native executable
+code at runtime and executes it, usually in order to achieve good
+performance while maintaining platform independence.
+
+   Programs that use JIT compilation are normally difficult to debug
+because portions of their code are generated at runtime, instead of
+being loaded from object files, which is where GDB normally finds the
+program's symbols and debug information.  In order to debug programs
+that use JIT compilation, GDB has an interface that allows the program
+to register in-memory symbol files with GDB at runtime.
+
+   If you are using GDB to debug a program that uses this interface,
+then it should work transparently so long as you have not stripped the
+binary.  If you are developing a JIT compiler, then the interface is
+documented in the rest of this chapter.  At this time, the only known
+client of this interface is the LLVM JIT.
+
+   Broadly speaking, the JIT interface mirrors the dynamic loader
+interface.  The JIT compiler communicates with GDB by writing data into
+a global variable and calling a function at a well-known symbol.  When
+GDB attaches, it reads a linked list of symbol files from the global
+variable to find existing code, and puts a breakpoint in the function so
+that it can find out about additional code.
+
+* Menu:
+
+* Declarations::                Relevant C struct declarations
+* Registering Code::            Steps to register code
+* Unregistering Code::          Steps to unregister code
+* Custom Debug Info::           Emit debug information in a custom format
+
+
+File: gdb.info,  Node: Declarations,  Next: Registering Code,  Up: JIT Interface
+
+30.1 JIT Declarations
+=====================
+
+These are the relevant struct declarations that a C program should
+include to implement the interface:
+
+     typedef enum
+     {
+       JIT_NOACTION = 0,
+       JIT_REGISTER_FN,
+       JIT_UNREGISTER_FN
+     } jit_actions_t;
+
+     struct jit_code_entry
+     {
+       struct jit_code_entry *next_entry;
+       struct jit_code_entry *prev_entry;
+       const char *symfile_addr;
+       uint64_t symfile_size;
+     };
+
+     struct jit_descriptor
+     {
+       uint32_t version;
+       /* This type should be jit_actions_t, but we use uint32_t
+          to be explicit about the bitwidth.  */
+       uint32_t action_flag;
+       struct jit_code_entry *relevant_entry;
+       struct jit_code_entry *first_entry;
+     };
+
+     /* GDB puts a breakpoint in this function.  */
+     void __attribute__((noinline)) __jit_debug_register_code() { };
+
+     /* Make sure to specify the version statically, because the
+        debugger may check the version before we can set it.  */
+     struct jit_descriptor __jit_debug_descriptor = { 1, 0, 0, 0 };
+
+   If the JIT is multi-threaded, then it is important that the JIT
+synchronize any modifications to this global data properly, which can
+easily be done by putting a global mutex around modifications to these
+structures.
+
+
+File: gdb.info,  Node: Registering Code,  Next: Unregistering Code,  Prev: Declarations,  Up: JIT Interface
+
+30.2 Registering Code
+=====================
+
+To register code with GDB, the JIT should follow this protocol:
+
+   * Generate an object file in memory with symbols and other desired
+     debug information.  The file must include the virtual addresses of
+     the sections.
+
+   * Create a code entry for the file, which gives the start and size of
+     the symbol file.
+
+   * Add it to the linked list in the JIT descriptor.
+
+   * Point the relevant_entry field of the descriptor at the entry.
+
+   * Set 'action_flag' to 'JIT_REGISTER' and call
+     '__jit_debug_register_code'.
+
+   When GDB is attached and the breakpoint fires, GDB uses the
+'relevant_entry' pointer so it doesn't have to walk the list looking for
+new code.  However, the linked list must still be maintained in order to
+allow GDB to attach to a running process and still find the symbol
+files.
+
+
+File: gdb.info,  Node: Unregistering Code,  Next: Custom Debug Info,  Prev: Registering Code,  Up: JIT Interface
+
+30.3 Unregistering Code
+=======================
+
+If code is freed, then the JIT should use the following protocol:
+
+   * Remove the code entry corresponding to the code from the linked
+     list.
+
+   * Point the 'relevant_entry' field of the descriptor at the code
+     entry.
+
+   * Set 'action_flag' to 'JIT_UNREGISTER' and call
+     '__jit_debug_register_code'.
+
+   If the JIT frees or recompiles code without unregistering it, then
+GDB and the JIT will leak the memory used for the associated symbol
+files.
+
+
+File: gdb.info,  Node: Custom Debug Info,  Prev: Unregistering Code,  Up: JIT Interface
+
+30.4 Custom Debug Info
+======================
+
+Generating debug information in platform-native file formats (like ELF
+or COFF) may be an overkill for JIT compilers; especially if all the
+debug info is used for is displaying a meaningful backtrace.  The issue
+can be resolved by having the JIT writers decide on a debug info format
+and also provide a reader that parses the debug info generated by the
+JIT compiler.  This section gives a brief overview on writing such a
+parser.  More specific details can be found in the source file
+'gdb/jit-reader.in', which is also installed as a header at
+'INCLUDEDIR/gdb/jit-reader.h' for easy inclusion.
+
+   The reader is implemented as a shared object (so this functionality
+is not available on platforms which don't allow loading shared objects
+at runtime).  Two GDB commands, 'jit-reader-load' and
+'jit-reader-unload' are provided, to be used to load and unload the
+readers from a preconfigured directory.  Once loaded, the shared object
+is used the parse the debug information emitted by the JIT compiler.
+
+* Menu:
+
+* Using JIT Debug Info Readers::       How to use supplied readers correctly
+* Writing JIT Debug Info Readers::     Creating a debug-info reader
+
+
+File: gdb.info,  Node: Using JIT Debug Info Readers,  Next: Writing JIT Debug Info Readers,  Up: Custom Debug Info
+
+30.4.1 Using JIT Debug Info Readers
+-----------------------------------
+
+Readers can be loaded and unloaded using the 'jit-reader-load' and
+'jit-reader-unload' commands.
+
+'jit-reader-load READER'
+     Load the JIT reader named READER, which is a shared object
+     specified as either an absolute or a relative file name.  In the
+     latter case, GDB will try to load the reader from a pre-configured
+     directory, usually 'LIBDIR/gdb/' on a UNIX system (here LIBDIR is
+     the system library directory, often '/usr/local/lib').
+
+     Only one reader can be active at a time; trying to load a second
+     reader when one is already loaded will result in GDB reporting an
+     error.  A new JIT reader can be loaded by first unloading the
+     current one using 'jit-reader-unload' and then invoking
+     'jit-reader-load'.
+
+'jit-reader-unload'
+     Unload the currently loaded JIT reader.
 
 
 File: gdb.info,  Node: Writing JIT Debug Info Readers,  Prev: Using JIT Debug Info Readers,  Up: Custom Debug Info
@@ -278,8 +838,6 @@ specification.  They don't exist in real commands.
           TARGET_ADDRESS and GDB_JUMP_PAD_HEAD are 8-byte long.  The
           FJUMP contains a sequence of instructions jump to jumppad
           entry.  The FJUMP_SIZE, 4-byte long, is the size of FJUMP.
-     'E NN'
-          for an error
 
 'close'
      Closes the in-process agent.  This command is sent when GDB or
@@ -295,8 +853,6 @@ specification.  They don't exist in real commands.
      Asks in-process agent to probe the marker at ADDRESS.
 
      Replies:
-     'E NN'
-          for an error
 'unprobe_marker_at:ADDRESS'
      Asks in-process agent to unprobe the marker at ADDRESS.
 
@@ -2238,7 +2794,7 @@ and TeX (or 'texi2roff') to typeset the printed version.
 
    GDB includes an already formatted copy of the on-line Info version of
 this manual in the 'gdb' subdirectory.  The main Info file is
-'gdb-14.2/gdb/gdb.info', and it refers to subordinate files matching
+'gdb-15.1/gdb/gdb.info', and it refers to subordinate files matching
 'gdb.info*' in the same directory.  If necessary, you can print out
 these files, or read them with any editor; but they are easier to read
 using the 'info' subsystem in GNU Emacs or the standalone 'info'
@@ -2248,7 +2804,7 @@ program, available as part of the GNU Texinfo distribution.
 Info formatting programs, such as 'texinfo-format-buffer' or 'makeinfo'.
 
    If you have 'makeinfo' installed, and are in the top level GDB source
-directory ('gdb-14.2', in the case of version 14.2), you can make the
+directory ('gdb-15.1', in the case of version 15.1), you can make the
 Info file by typing:
 
      cd gdb
@@ -2274,7 +2830,7 @@ On its own, TeX cannot either read or typeset a Texinfo file.
 
    If you have TeX and a DVI printer program installed, you can typeset
 and print this manual.  First switch to the 'gdb' subdirectory of the
-main source directory (for example, to 'gdb-14.2/gdb') and type:
+main source directory (for example, to 'gdb-15.1/gdb') and type:
 
      make gdb.dvi
 
@@ -2282,7 +2838,7 @@ main source directory (for example, to 'gdb-14.2/gdb') and type:
 
    ---------- Footnotes ----------
 
-   (1) In 'gdb-14.2/gdb/refcard.ps' of the version 14.2 release.
+   (1) In 'gdb-15.1/gdb/refcard.ps' of the version 15.1 release.
 
 
 File: gdb.info,  Node: Installing GDB,  Next: Maintenance Commands,  Prev: Formatting Documentation,  Up: Top
@@ -2311,9 +2867,9 @@ packages will be used only if they are found.
 Tools/Packages Necessary for Building GDB
 =========================================
 
-C++11 compiler
-     GDB is written in C++11.  It should be buildable with any recent
-     C++11 compiler, e.g. GCC.
+C++17 compiler
+     GDB is written in C++17.  It should be buildable with any recent
+     C++17 compiler, e.g. GCC.
 
 GNU make
      GDB's build system relies on features only found in the GNU make
@@ -2335,11 +2891,11 @@ Libraries
 
      GMP (The GNU Multiple Precision arithmetic library)
           GDB uses GMP to perform some of its extended-precision
-          arithmetics.  The latest version of GMP is available from
+          arithmetic.  The latest version of GMP is available from
           <https://gmplib.org/>.
 
      MPFR (The GNU Multiple-precision floating-point library)
-          GDB uses MPFR to emulate the target floating-point arithmetics
+          GDB uses MPFR to emulate the target floating-point arithmetic
           during expression evaluation, if the target uses different
           floating-point formats than the host.  The latest version of
           MPFR is available from <http://www.mpfr.org>.
@@ -2445,35 +3001,35 @@ preparing GDB for installation; you can then use 'make' to build the
 a single directory, whose name is usually composed by appending the
 version number to 'gdb'.
 
-   For example, the GDB version 14.2 distribution is in the 'gdb-14.2'
+   For example, the GDB version 15.1 distribution is in the 'gdb-15.1'
 directory.  That directory contains:
 
-'gdb-14.2/configure (and supporting files)'
+'gdb-15.1/configure (and supporting files)'
      script for configuring GDB and all its supporting libraries
 
-'gdb-14.2/gdb'
+'gdb-15.1/gdb'
      the source specific to GDB itself
 
-'gdb-14.2/bfd'
+'gdb-15.1/bfd'
      source for the Binary File Descriptor library
 
-'gdb-14.2/include'
+'gdb-15.1/include'
      GNU include files
 
-'gdb-14.2/libiberty'
+'gdb-15.1/libiberty'
      source for the '-liberty' free software library
 
-'gdb-14.2/opcodes'
+'gdb-15.1/opcodes'
      source for the library of opcode tables and disassemblers
 
-'gdb-14.2/readline'
+'gdb-15.1/readline'
      source for the GNU command-line interface
 
    There may be other subdirectories as well.
 
    The simplest way to configure and build GDB is to run 'configure'
 from the 'gdb-VERSION-NUMBER' source directory, which in this example is
-the 'gdb-14.2' directory.
+the 'gdb-15.1' directory.
 
    First switch to the 'gdb-VERSION-NUMBER' source directory if you are
 not already in it; then run 'configure'.  Pass the identifier for the
@@ -2481,7 +3037,7 @@ platform on which GDB will run as an argument.
 
    For example:
 
-     cd gdb-14.2
+     cd gdb-15.1
      ./configure
      make
 
@@ -2529,13 +3085,13 @@ to specify a path to find 'configure' itself from your working
 directory.  If the path to 'configure' would be the same as the argument
 to '--srcdir', you can leave out the '--srcdir' option; it is assumed.)
 
-   For example, with version 14.2, you can build GDB in a separate
+   For example, with version 15.1, you can build GDB in a separate
 directory for a Sun 4 like this:
 
-     cd gdb-14.2
+     cd gdb-15.1
      mkdir ../gdb-sun4
      cd ../gdb-sun4
-     ../gdb-14.2/configure
+     ../gdb-15.1/configure
      make
 
    When 'configure' builds a configuration using a remote source
@@ -2546,7 +3102,7 @@ the example, you'd find the Sun 4 library 'libiberty.a' in the directory
 
    Make sure that your path to the 'configure' script has just one
 instance of 'gdb' in it.  If your path to 'configure' looks like
-'../gdb-14.2/gdb/configure', you are configuring only one subdirectory
+'../gdb-15.1/gdb/configure', you are configuring only one subdirectory
 of GDB, not the whole package.  This leads to build errors about missing
 include files such as 'bfd/bfd.h'.
 
@@ -2562,8 +3118,8 @@ a configured directory--whatever directory you were in when you called
 
    The 'Makefile' that 'configure' generates in each source directory
 also runs recursively.  If you type 'make' in a source directory such as
-'gdb-14.2' (or in a separate configured directory configured with
-'--srcdir=DIRNAME/gdb-14.2'), you will build all the required libraries,
+'gdb-15.1' (or in a separate configured directory configured with
+'--srcdir=DIRNAME/gdb-15.1'), you will build all the required libraries,
 and then build GDB.
 
    When you have multiple hosts or targets configured in separate
@@ -2608,7 +3164,7 @@ you can use it to test your guesses on abbreviations--for example:
      Invalid configuration `i986v': machine `i986v' not recognized
 
 'config.sub' is also distributed in the GDB source directory
-('gdb-14.2', for version 14.2).
+('gdb-15.1', for version 15.1).
 
 
 File: gdb.info,  Node: Configure Options,  Next: System-wide configuration,  Prev: Config Names,  Up: Installing GDB
@@ -3020,6 +3576,10 @@ commands that turn on debugging messages, see *note Debugging Output::.)
      that module has been imported.  To force the module to be imported
      do the following:
 
+'maint info linux-lwps'
+     Print information about LWPs under control of the Linux native
+     target.
+
           (gdb) python import gdb.disassembler
 
      This command lists all the architectures for which a disassembler
@@ -3368,7 +3928,7 @@ commands that turn on debugging messages, see *note Debugging Output::.)
 'maint print record-instruction N'
      print how GDB recorded a given instruction.  If N is not positive
      number, it prints the values stored by the inferior before the N-th
-     previous instruction was exectued.  If N is positive, print the
+     previous instruction was executed.  If N is positive, print the
      values after the N-th following instruction is executed.  If N is
      not given, 0 is assumed.
 
@@ -3419,6 +3979,23 @@ commands that turn on debugging messages, see *note Debugging Output::.)
      longer, and more total memory will be used.  Setting it to zero
      disables caching, which will slow down GDB startup, but reduce
      memory consumption.
+
+'maint set dwarf synchronous'
+'maint show dwarf synchronous'
+     Control whether DWARF is read asynchronously.
+
+     On hosts where threading is available, the DWARF reader is mostly
+     asynchronous with respect to the rest of GDB.  That is, the bulk of
+     the reading is done in the background, and GDB will only pause for
+     completion of this task when absolutely necessary.
+
+     When this setting is enabled, GDB will instead wait for DWARF
+     processing to complete before continuing.
+
+     On hosts without threading, or where worker threads have been
+     disabled at runtime, this setting has no effect, as DWARF reading
+     is always done on the main thread, and is therefore always
+     synchronous.
 
 'maint set dwarf unwinders'
 'maint show dwarf unwinders'
@@ -3736,6 +4313,7 @@ Appendix E GDB Remote Serial Protocol
 * Menu:
 
 * Overview::
+* Standard Replies::
 * Packets::
 * Stop Reply Packets::
 * General Query Packets::
@@ -3757,7 +4335,7 @@ Appendix E GDB Remote Serial Protocol
 * Branch Trace Configuration Format::
 
 
-File: gdb.info,  Node: Overview,  Next: Packets,  Up: Remote Protocol
+File: gdb.info,  Node: Overview,  Next: Standard Replies,  Up: Remote Protocol
 
 E.1 Overview
 ============
@@ -3819,11 +4397,11 @@ leading zeros suppressed.
 could not appear as the third character in a packet (as it would
 potentially conflict with the SEQUENCE-ID).
 
-   Binary data in most packets is encoded either as two hexadecimal
-digits per byte of binary data.  This allowed the traditional remote
-protocol to work over connections which were only seven-bit clean.  Some
-packets designed more recently assume an eight-bit clean connection, and
-use a more efficient encoding to send and receive binary data.
+   Binary data in most packets is encoded as two hexadecimal digits per
+byte of binary data.  This allowed the traditional remote protocol to
+work over connections which were only seven-bit clean.  Some packets
+designed more recently assume an eight-bit clean connection, and use a
+more efficient encoding to send and receive binary data.
 
    The binary data representation uses '7d' (ASCII '}') as an escape
 character.  Any escaped byte is transmitted as the escape character
@@ -3850,12 +4428,22 @@ than 126 must not be used.  Runs of six repeats ('#') or seven repeats
 ('$') can be expanded using a repeat count of only five ('"').  For
 example, '00000000' can be encoded as '0*"00'.
 
-   The error response returned for some packets includes a two character
-error number.  That number is not well defined.
+   *Note Standard Replies:: for standard error responses, and how to
+respond indicating a command is not supported.
 
-   For any COMMAND not supported by the stub, an empty response ('$#00')
-should be returned.  That way it is possible to extend the protocol.  A
-newer GDB can tell if a packet is supported based on that response.
+   In describing packets (commands and responses), each description has
+a template showing the overall syntax, followed by an explanation of the
+packet's meaning.  We include spaces in some of the templates for
+clarity; these are not part of the packet's syntax.  No GDB packet uses
+spaces to separate its components.  For example, a template like 'foo
+BAR BAZ' describes a packet beginning with the three ASCII bytes 'foo',
+followed by a BAR, followed directly by a BAZ.  GDB does not transmit a
+space character between the 'foo' and the BAR, or between the BAR and
+the BAZ.
+
+   We place optional portions of a packet in [square brackets]; for
+example, a template like 'c [ADDR]' describes a packet beginning with
+the single ASCII character 'c', possibly followed by an ADDR.
 
    At a minimum, a stub is required to support the '?' command to tell
 GDB the reason for halting, 'g' and 'G' commands for register access,
@@ -3867,9 +4455,35 @@ support multi-threading targets should support the 'vCont' command.  All
 other commands are optional.
 
 
-File: gdb.info,  Node: Packets,  Next: Stop Reply Packets,  Prev: Overview,  Up: Remote Protocol
+File: gdb.info,  Node: Standard Replies,  Next: Packets,  Prev: Overview,  Up: Remote Protocol
 
-E.2 Packets
+E.2 Standard Replies
+====================
+
+The remote protocol specifies a few standard replies.  All commands
+support these, except as noted in the individual command descriptions.
+
+empty response
+
+     An empty response (raw character sequence '$#00') means the COMMAND
+     is not supported by the stub.  This way it is possible to extend
+     the protocol.  A newer GDB can tell if a command is supported based
+     on that response (but see also *note qSupported::).
+
+'E XX'
+     An error has occurred; XX is a two-digit hexadecimal error number.
+     In almost all cases, the protocol does not specify the meaning of
+     the error numbers; GDB usually ignores the numbers, or displays
+     them to the user without further interpretation.
+
+'E.ERRTEXT'
+     An error has occurred; ERRTEXT is the textual error message,
+     encoded in ASCII.
+
+
+File: gdb.info,  Node: Packets,  Next: Stop Reply Packets,  Prev: Standard Replies,  Up: Remote Protocol
+
+E.3 Packets
 ===========
 
 The following table provides a complete list of all currently defined
@@ -3939,8 +4553,6 @@ letter, other than those described here, are reserved for future use.
      Reply:
      'OK'
           The arguments were set.
-     'E NN'
-          An error occurred.
 
 'b BAUD'
      (Don't use this packet; its behavior is not well-defined.)  Change
@@ -4013,8 +4625,6 @@ letter, other than those described here, are reserved for future use.
      Reply:
      'OK'
           for success
-     'E NN'
-          for an error
 
 'F RC,EE,CF;XX'
      A reply from GDB to an 'F' packet sent by the target.  This is part
@@ -4056,9 +4666,6 @@ letter, other than those described here, are reserved for future use.
                -> g
                <- xxxxxxxx00000000xxxxxxxx00000000
 
-     'E NN'
-          for an error.
-
 'G XX...'
      Write general registers.  *Note read registers packet::, for a
      description of the XX... data.
@@ -4066,8 +4673,6 @@ letter, other than those described here, are reserved for future use.
      Reply:
      'OK'
           for success
-     'E NN'
-          for an error
 
 'H OP THREAD-ID'
      Set thread for subsequent operations ('m', 'M', 'g', 'G', et.al.).
@@ -4080,8 +4685,6 @@ letter, other than those described here, are reserved for future use.
      Reply:
      'OK'
           for success
-     'E NN'
-          for an error
 
 'i [ADDR[,NNN]]'
      Step the remote target by a single clock cycle.  If ',NNN' is
@@ -4132,8 +4735,9 @@ letter, other than those described here, are reserved for future use.
           hexadecimal number.  The reply may contain fewer addressable
           memory units than requested if the server was able to read
           only part of the region of memory.
-     'E NN'
-          NN is errno
+
+     Unlike most packets, this packet does not support 'E.ERRTEXT'-style
+     textual error replies (*note textual error reply::).
 
 'M ADDR,LENGTH:XX...'
      Write LENGTH addressable memory units starting at address ADDR
@@ -4142,10 +4746,8 @@ letter, other than those described here, are reserved for future use.
 
      Reply:
      'OK'
-          for success
-     'E NN'
-          for an error (this includes the case where only part of the
-          data was written).
+          All the data was written successfully.  (If only part of the
+          data was written, this command returns an error.)
 
 'p N'
      Read the value of register N; N is in hex.  *Note read registers
@@ -4155,10 +4757,6 @@ letter, other than those described here, are reserved for future use.
      Reply:
      'XX...'
           the register's value
-     'E NN'
-          for an error
-     ''
-          Indicating an unrecognized QUERY.
 
 'P N...=R...'
      Write register N... with value R....  The register number N is in
@@ -4168,8 +4766,6 @@ letter, other than those described here, are reserved for future use.
      Reply:
      'OK'
           for success
-     'E NN'
-          for an error
 
 'q NAME PARAMS...'
 'Q NAME PARAMS...'
@@ -4219,8 +4815,6 @@ letter, other than those described here, are reserved for future use.
      Reply:
      'OK'
           thread is still alive
-     'E NN'
-          thread is dead
 
 'v'
      Packets starting with 'v' are identified by a multi-letter name, up
@@ -4237,8 +4831,6 @@ letter, other than those described here, are reserved for future use.
      mode::).
 
      Reply:
-     'E NN'
-          for an error
      'Any stop packet'
           for success in all-stop mode (*note Stop Reply Packets::)
      'OK'
@@ -4318,8 +4910,6 @@ letter, other than those described here, are reserved for future use.
      'vCont[;ACTION...]'
           The 'vCont' packet is supported.  Each ACTION is a supported
           command in the 'vCont' packet.
-     ''
-          The 'vCont' packet is not supported.
 
 'vCtrlC'
      Interrupt remote target as if a control-C was pressed on the remote
@@ -4330,8 +4920,6 @@ letter, other than those described here, are reserved for future use.
      variant.
 
      Reply:
-     'E NN'
-          for an error
      'OK'
           for success
 
@@ -4351,8 +4939,6 @@ letter, other than those described here, are reserved for future use.
      Reply:
      'OK'
           for success
-     'E NN'
-          for an error
 
 'vFlashWrite:ADDR:XX...'
      Direct the stub to write data to flash address ADDR.  The data is
@@ -4371,8 +4957,6 @@ letter, other than those described here, are reserved for future use.
           for success
      'E.memtype'
           for vFlashWrite addressing non-flash memory
-     'E NN'
-          for an error
 
 'vFlashDone'
      Indicate to the stub that flash programming operation is finished.
@@ -4388,8 +4972,6 @@ letter, other than those described here, are reserved for future use.
      supported; see *note multiprocess extensions::.
 
      Reply:
-     'E NN'
-          for an error
      'OK'
           for success
 
@@ -4415,8 +4997,6 @@ letter, other than those described here, are reserved for future use.
      mode::).
 
      Reply:
-     'E NN'
-          for an error
      'Any stop packet'
           for success (*note Stop Reply Packets::)
 
@@ -4432,8 +5012,6 @@ letter, other than those described here, are reserved for future use.
      Reply:
      'OK'
           for success
-     'E NN'
-          for an error
 
 'z TYPE,ADDR,KIND'
 'Z TYPE,ADDR,KIND'
@@ -4500,10 +5078,6 @@ letter, other than those described here, are reserved for future use.
      Reply:
      'OK'
           success
-     ''
-          not supported
-     'E NN'
-          for an error
 
 'z1,ADDR,KIND'
 'Z1,ADDR,KIND[;COND_LIST...][;cmds:PERSIST,CMD_LIST...]'
@@ -4521,10 +5095,6 @@ letter, other than those described here, are reserved for future use.
      Reply:
      'OK'
           success
-     ''
-          not supported
-     'E NN'
-          for an error
 
 'z2,ADDR,KIND'
 'Z2,ADDR,KIND'
@@ -4534,10 +5104,6 @@ letter, other than those described here, are reserved for future use.
      Reply:
      'OK'
           success
-     ''
-          not supported
-     'E NN'
-          for an error
 
 'z3,ADDR,KIND'
 'Z3,ADDR,KIND'
@@ -4547,10 +5113,6 @@ letter, other than those described here, are reserved for future use.
      Reply:
      'OK'
           success
-     ''
-          not supported
-     'E NN'
-          for an error
 
 'z4,ADDR,KIND'
 'Z4,ADDR,KIND'
@@ -4560,15 +5122,11 @@ letter, other than those described here, are reserved for future use.
      Reply:
      'OK'
           success
-     ''
-          not supported
-     'E NN'
-          for an error
 
 
 File: gdb.info,  Node: Stop Reply Packets,  Next: General Query Packets,  Prev: Packets,  Up: Remote Protocol
 
-E.3 Stop Reply Packets
+E.4 Stop Reply Packets
 ======================
 
 The 'C', 'c', 'S', 's', 'vCont', 'vAttach', 'vRun', 'vStopped', and '?'
@@ -4717,6 +5275,15 @@ components.
           remote stub must also supply the appropriate 'qSupported'
           feature indicating support.
 
+     'clone'
+          The packet indicates that 'clone' was called, and R is the
+          thread ID of the new child thread, as specified in *note
+          thread-id syntax::.  This packet is only applicable to targets
+          that support clone events.
+
+          This packet should not be sent by default; GDB requests it
+          with the *note QThreadOptions:: packet.
+
      'create'
           The packet indicates that the thread was just created.  The
           new thread is stopped until GDB sets it running with a
@@ -4749,9 +5316,10 @@ components.
 'w AA ; TID'
 
      The thread exited, and AA is the exit status.  This response should
-     not be sent by default; GDB requests it with the *note
-     QThreadEvents:: packet.  See also *note thread create event::
-     above.  AA is formatted as a big-endian hex string.
+     not be sent by default; GDB requests it with either the *note
+     QThreadEvents:: or *note QThreadOptions:: packets.  See also *note
+     thread create event:: above.  AA is formatted as a big-endian hex
+     string.
 
 'N'
      There are no resumed threads left in the target.  In other words,
@@ -4794,7 +5362,7 @@ components.
 
 File: gdb.info,  Node: General Query Packets,  Next: Architecture-Specific Protocol Details,  Prev: Stop Reply Packets,  Up: Remote Protocol
 
-E.4 General Query Packets
+E.5 General Query Packets
 =========================
 
 Packets starting with 'q' are "general query packets"; packets starting
@@ -4869,8 +5437,6 @@ GDB packet uses spaces to separate its components.
      inverted to detect trailing zeros.
 
      Reply:
-     'E NN'
-          An error (such as memory fault)
      'C CRC32'
           The specified memory region's checksum is CRC32.
 
@@ -4890,14 +5456,6 @@ GDB packet uses spaces to separate its components.
      Reply:
      'OK'
           The request succeeded.
-
-     'E NN'
-          An error occurred.  The error number NN is given as hex
-          digits.
-
-     ''
-          An empty reply indicates that 'QDisableRandomization' is not
-          supported by the stub.
 
      This packet is not probed by default; the remote stub must request
      it, by supplying an appropriate 'qSupported' response (*note
@@ -4921,10 +5479,6 @@ GDB packet uses spaces to separate its components.
      Reply:
      'OK'
           The request succeeded.
-
-     'E NN'
-          An error occurred.  The error number NN is given as hex
-          digits.
 
      This packet is not probed by default; the remote stub must request
      it, by supplying an appropriate 'qSupported' response (*note
@@ -5085,14 +5639,6 @@ GDB packet uses spaces to separate its components.
           Hex encoded (big endian) bytes representing the address of the
           thread local storage requested.
 
-     'E NN'
-          An error occurred.  The error number NN is given as hex
-          digits.
-
-     ''
-          An empty reply indicates that 'qGetTLSAddr' is not supported
-          by the stub.
-
 'qGetTIBAddr:THREAD-ID'
      Fetch address of the Windows OS specific Thread Information Block.
 
@@ -5102,14 +5648,6 @@ GDB packet uses spaces to separate its components.
      'XX...'
           Hex encoded (big endian) bytes representing the linear address
           of the thread information block.
-
-     'E NN'
-          An error occurred.  This means that either the thread was not
-          found, or the address could not be retrieved.
-
-     ''
-          An empty reply indicates that 'qGetTIBAddr' is not supported
-          by the stub.
 
 'qL STARTFLAG THREADCOUNT NEXTTHREAD'
      Obtain thread information from RTOS. Where: STARTFLAG (one hex
@@ -5145,20 +5683,30 @@ GDB packet uses spaces to separate its components.
      TYPE is the type of tag the request wants to fetch.  The type is a
      signed integer.
 
+     GDB will only send this packet if the stub has advertised support
+     for memory tagging via 'qSupported'.
+
      Reply:
      'MXX...'
           Hex encoded sequence of uninterpreted bytes, XX...,
           representing the tags found in the requested memory range.
 
-     'E NN'
-          An error occurred.  This means that fetching of memory tags
-          failed for some reason.
+'qIsAddressTagged:ADDRESS'
+     Check if address ADDRESS is in a memory tagged region; if it is,
+     it's said to be "tagged".  The target is responsible for checking
+     it, as this is architecture-specific.
 
-     ''
-          An empty reply indicates that 'qMemTags' is not supported by
-          the stub, although this should not happen given GDB will only
-          send this packet if the stub has advertised support for memory
-          tagging via 'qSupported'.
+     ADDRESS is the address to be checked.
+
+     Reply:
+          Replies to this packet should all be in two hex digit format,
+          as follows:
+
+     ''01''
+          Address ADDRESS is tagged.
+
+     ''00''
+          Address ADDRESS is not tagged.
 
 'QMemTags:START ADDRESS,LENGTH:TYPE:TAG BYTES'
      Store memory tags of type TYPE to the address range
@@ -5190,20 +5738,13 @@ GDB packet uses spaces to separate its components.
      will be interpreted by the target.  Each pair of hex digits is
      interpreted as a single byte.
 
+     GDB will only send this packet if the stub has advertised support
+     for memory tagging via 'qSupported'.
+
      Reply:
      'OK'
           The request was successful and the memory tag granules were
           modified accordingly.
-
-     'E NN'
-          An error occurred.  This means that modifying the memory tag
-          granules failed for some reason.
-
-     ''
-          An empty reply indicates that 'QMemTags' is not supported by
-          the stub, although this should not happen given GDB will only
-          send this packet if the stub has advertised support for memory
-          tagging via 'qSupported'.
 
 'qOffsets'
      Get section offsets that the target used when relocating the
@@ -5250,14 +5791,6 @@ GDB packet uses spaces to separate its components.
      'OK'
           The request succeeded.
 
-     'E NN'
-          An error occurred.  The error number NN is given as hex
-          digits.
-
-     ''
-          An empty reply indicates that 'QNonStop' is not supported by
-          the stub.
-
      This packet is not probed by default; the remote stub must request
      it, by supplying an appropriate 'qSupported' response (*note
      qSupported::).  Use of this packet is controlled by the 'set
@@ -5290,13 +5823,6 @@ GDB packet uses spaces to separate its components.
      'OK'
           The request succeeded.
 
-     'E NN'
-          An error occurred.  NN are hex digits.
-
-     ''
-          An empty reply indicates that 'QCatchSyscalls' is not
-          supported by the stub.
-
      Use of this packet is controlled by the 'set remote catch-syscalls'
      command (*note set remote catch-syscalls: Remote Configuration.).
      This packet is not probed by default; the remote stub must request
@@ -5317,14 +5843,6 @@ GDB packet uses spaces to separate its components.
      Reply:
      'OK'
           The request succeeded.
-
-     'E NN'
-          An error occurred.  The error number NN is given as hex
-          digits.
-
-     ''
-          An empty reply indicates that 'QPassSignals' is not supported
-          by the stub.
 
      Use of this packet is controlled by the 'set remote pass-signals'
      command (*note set remote pass-signals: Remote Configuration.).
@@ -5357,14 +5875,6 @@ GDB packet uses spaces to separate its components.
      'OK'
           The request succeeded.
 
-     'E NN'
-          An error occurred.  The error number NN is given as hex
-          digits.
-
-     ''
-          An empty reply indicates that 'QProgramSignals' is not
-          supported by the stub.
-
      Use of this packet is controlled by the 'set remote
      program-signals' command (*note set remote program-signals: Remote
      Configuration.).  This packet is not probed by default; the remote
@@ -5384,20 +5894,82 @@ GDB packet uses spaces to separate its components.
      enable this feature unless the stub reports that it supports it by
      including 'QThreadEvents+' in its 'qSupported' reply.
 
+     This packet always enables/disables event reporting for all threads
+     of all processes under control of the remote stub.  For per-thread
+     control of optional event reporting, see the *note QThreadOptions::
+     packet.
+
      Reply:
      'OK'
           The request succeeded.
 
-     'E NN'
-          An error occurred.  The error number NN is given as hex
-          digits.
-
-     ''
-          An empty reply indicates that 'QThreadEvents' is not supported
-          by the stub.
-
      Use of this packet is controlled by the 'set remote thread-events'
      command (*note set remote thread-events: Remote Configuration.).
+
+'QThreadOptions[;OPTIONS[:THREAD-ID]]...'
+
+     For each inferior thread, the last OPTIONS in the list with a
+     matching THREAD-ID are applied.  Any options previously set on a
+     thread are discarded and replaced by the new options specified.
+     Threads that do not match any THREAD-ID retain their previously-set
+     options.  Thread IDs are specified using the syntax described in
+     *note thread-id syntax::.  If multiprocess extensions (*note
+     multiprocess extensions::) are supported, options can be specified
+     to apply to all threads of a process by using the 'pPID.-1' form of
+     THREAD-ID.  Options with no THREAD-ID apply to all threads.
+     Specifying no options value is an error.  Zero is a valid value.
+
+     OPTIONS is an hexadecimal integer specifying the enabled thread
+     options, and is the bitwise 'OR' of the following values.  All
+     values are given in hexadecimal representation.
+
+     'GDB_THREAD_OPTION_CLONE (0x1)'
+          Report thread clone events (*note thread clone event::).  This
+          is only meaningful for targets that support clone events
+          (e.g., GNU/Linux systems).
+
+     'GDB_THREAD_OPTION_EXIT (0x2)'
+          Report thread exit events (*note thread exit event::).
+
+
+     For example, GDB enables the 'GDB_THREAD_OPTION_EXIT' and
+     'GDB_THREAD_OPTION_CLONE' options when single-stepping a thread
+     past a breakpoint, for the following reasons:
+
+        * If the single-stepped thread exits (e.g., it executes a thread
+          exit system call), enabling 'GDB_THREAD_OPTION_EXIT' prevents
+          GDB from waiting forever, not knowing that it should no longer
+          expect a stop for that same thread, and blocking other threads
+          from progressing.
+
+        * If the single-stepped thread spawns a new clone child (i.e.,
+          it executes a clone system call), enabling
+          'GDB_THREAD_OPTION_CLONE' halts the cloned thread before it
+          executes any instructions, and thus prevents the following
+          problematic situations:
+
+             - If the breakpoint is stepped-over in-line, the spawned
+               thread would incorrectly run free while the breakpoint
+               being stepped over is not inserted, and thus the cloned
+               thread may potentially run past the breakpoint without
+               stopping for it;
+
+             - If displaced (out-of-line) stepping is used, the cloned
+               thread starts running at the out-of-line PC, leading to
+               undefined behavior, usually crashing or corrupting data.
+
+     New threads start with thread options cleared.
+
+     GDB does not enable this feature unless the stub reports that it
+     supports it by including 'QThreadOptions=SUPPORTED_OPTIONS' in its
+     'qSupported' reply.
+
+     Reply:
+     'OK'
+          The request succeeded.
+
+     Use of this packet is controlled by the 'set remote thread-options'
+     command (*note set remote thread-options: Remote Configuration.).
 
 'qRcmd,COMMAND'
      COMMAND (hex encoded) is passed to the local interpreter for
@@ -5412,11 +5984,9 @@ GDB packet uses spaces to separate its components.
           A command response with no output.
      'OUTPUT'
           A command response with the hex encoded output string OUTPUT.
-     'E NN'
-          Indicate a badly formed request.  The error number NN is given
-          as hex digits.
-     ''
-          An empty reply indicates that 'qRcmd' is not recognized.
+
+     Unlike most packets, this packet does not support 'E.ERRTEXT'-style
+     textual error replies (*note textual error reply::).
 
      (Note that the 'qRcmd' packet's name is separated from the command
      by a ',', not a ':', contrary to the naming conventions above.
@@ -5432,12 +6002,6 @@ GDB packet uses spaces to separate its components.
           The pattern was not found.
      '1,address'
           The pattern was found at ADDRESS.
-     'E NN'
-          A badly formed request or an error was encountered while
-          searching memory.
-     ''
-          An empty reply indicates that 'qSearch:memory' is not
-          recognized.
 
 'QStartNoAckMode'
      Request that the remote stub disable the normal '+'/'-' protocol
@@ -5449,9 +6013,6 @@ GDB packet uses spaces to separate its components.
           acknowledges this response, but neither the stub nor GDB shall
           send or expect further '+'/'-' acknowledgments in the current
           connection.
-     ''
-          An empty reply indicates that the stub does not support
-          no-acknowledgment mode.
 
 'qSupported [:GDBFEATURE [;GDBFEATURE]... ]'
      Tell the remote stub about features supported by GDB, and query the
@@ -5474,9 +6035,6 @@ GDB packet uses spaces to separate its components.
           The stub supports or does not support each returned
           STUBFEATURE, depending on the form of each STUBFEATURE (see
           below for the possible forms).
-     ''
-          An empty reply indicates that 'qSupported' is not recognized,
-          or that no features needed to be reported to GDB.
 
      The allowed forms for each feature (either a GDBFEATURE in the
      'qSupported' packet, or a STUBFEATURE in the response) are:
@@ -5679,6 +6237,8 @@ GDB packet uses spaces to separate its components.
                                                         
      'QThreadEvents'           No             '-'       No
                                                         
+     'QThreadOptions'          Yes            '-'       No
+                                                        
      'no-resumed'              No             '-'       No
                                                         
      'memory-tagging'          No             '-'       No
@@ -5690,7 +6250,7 @@ GDB packet uses spaces to separate its components.
           The remote stub can accept packets up to at least BYTES in
           length.  GDB will send packets up to this size for bulk
           transfers, and will never send larger packets.  This is a
-          limit on the data characters in the packet, including the
+          limit on the data characters in the packet, not including the
           frame and checksum.  There is no trailing NUL byte in a remote
           protocol packet; if the stub stores packets in a
           NUL-terminated format, it should allow an extra byte in its
@@ -5896,6 +6456,13 @@ GDB packet uses spaces to separate its components.
      'QThreadEvents'
           The remote stub understands the 'QThreadEvents' packet.
 
+     'QThreadOptions=SUPPORTED_OPTIONS'
+          The remote stub understands the 'QThreadOptions' packet.
+          SUPPORTED_OPTIONS indicates the set of thread options the
+          remote stub supports.  SUPPORTED_OPTIONS has the same format
+          as the OPTIONS parameter of the 'QThreadOptions' packet,
+          described at *note QThreadOptions::.
+
      'no-resumed'
           The remote stub reports the 'N' stop reply.
 
@@ -5904,10 +6471,11 @@ GDB packet uses spaces to separate its components.
           tagging functionality and understands the 'qMemTags' (*note
           qMemTags::) and 'QMemTags' (*note QMemTags::) packets.
 
-          For AArch64 GNU/Linux systems, this feature also requires
-          access to the '/proc/PID/smaps' file so memory mapping page
-          flags can be inspected.  This is done via the 'vFile'
-          requests.
+          For AArch64 GNU/Linux systems, this feature can require access
+          to the '/proc/PID/smaps' file so memory mapping page flags can
+          be inspected, if 'qIsAddressTagged' (*note qIsAddressTagged::)
+          packet is not supported by the stub.  Access to the
+          '/proc/PID/smaps' file is done via 'vFile' requests.
 
 'qSymbol::'
      Notify the target that GDB is prepared to serve symbol lookup
@@ -6013,17 +6581,6 @@ GDB packet uses spaces to separate its components.
      'l'
           The OFFSET in the request is at the end of the data.  There is
           no more data to be read.
-
-     'E00'
-          The request was malformed, or ANNEX was invalid.
-
-     'E NN'
-          The offset was invalid, or there was an error encountered
-          reading the data.  The NN part is a hex-encoded 'errno' value.
-
-     ''
-          An empty reply indicates the OBJECT string was not recognized
-          by the stub, or that the object does not support reading.
 
      Here are the specific requests of this form defined so far.  All
      the 'qXfer:OBJECT:read:...' requests use the same reply formats,
@@ -6235,17 +6792,6 @@ GDB packet uses spaces to separate its components.
           NN (hex encoded) is the number of bytes written.  This may be
           fewer bytes than supplied in the request.
 
-     'E00'
-          The request was malformed, or ANNEX was invalid.
-
-     'E NN'
-          The offset was invalid, or there was an error encountered
-          writing the data.  The NN part is a hex-encoded 'errno' value.
-
-     ''
-          An empty reply indicates the OBJECT string was not recognized
-          by the stub, or that the object does not support writing.
-
      Here are the specific requests of this form defined so far.  All
      the 'qXfer:OBJECT:write:...' requests use the same reply formats,
      listed above.
@@ -6282,8 +6828,6 @@ GDB packet uses spaces to separate its components.
           The remote server attached to an existing process.
      '0'
           The remote server created a new process.
-     'E NN'
-          A badly formed request or an error was encountered.
 
 'Qbtrace:bts'
      Enable branch tracing for the current thread using Branch Trace
@@ -6292,8 +6836,6 @@ GDB packet uses spaces to separate its components.
      Reply:
      'OK'
           Branch tracing has been enabled.
-     'E.errtext'
-          A badly formed request or an error was encountered.
 
 'Qbtrace:pt'
      Enable branch tracing for the current thread using Intel Processor
@@ -6302,8 +6844,6 @@ GDB packet uses spaces to separate its components.
      Reply:
      'OK'
           Branch tracing has been enabled.
-     'E.errtext'
-          A badly formed request or an error was encountered.
 
 'Qbtrace:off'
      Disable branch tracing for the current thread.
@@ -6311,8 +6851,6 @@ GDB packet uses spaces to separate its components.
      Reply:
      'OK'
           Branch tracing has been disabled.
-     'E.errtext'
-          A badly formed request or an error was encountered.
 
 'Qbtrace-conf:bts:size=VALUE'
      Set the requested ring buffer size for new threads that use the
@@ -6321,8 +6859,6 @@ GDB packet uses spaces to separate its components.
      Reply:
      'OK'
           The ring buffer size has been set.
-     'E.errtext'
-          A badly formed request or an error was encountered.
 
 'Qbtrace-conf:pt:size=VALUE'
      Set the requested ring buffer size for new threads that use the
@@ -6331,8 +6867,6 @@ GDB packet uses spaces to separate its components.
      Reply:
      'OK'
           The ring buffer size has been set.
-     'E.errtext'
-          A badly formed request or an error was encountered.
 
    ---------- Footnotes ----------
 
@@ -6345,7 +6879,7 @@ known to not check for the end of the packet.
 
 File: gdb.info,  Node: Architecture-Specific Protocol Details,  Next: Tracepoint Packets,  Prev: General Query Packets,  Up: Remote Protocol
 
-E.5 Architecture-Specific Protocol Details
+E.6 Architecture-Specific Protocol Details
 ==========================================
 
 This section describes how the remote protocol is applied to specific
@@ -6360,7 +6894,7 @@ details of XML target descriptions for each architecture.
 
 File: gdb.info,  Node: ARM-Specific Protocol Details,  Next: MIPS-Specific Protocol Details,  Up: Architecture-Specific Protocol Details
 
-E.5.1 ARM-specific Protocol Details
+E.6.1 ARM-specific Protocol Details
 -----------------------------------
 
 * Menu:
@@ -6371,7 +6905,7 @@ E.5.1 ARM-specific Protocol Details
 
 File: gdb.info,  Node: ARM Breakpoint Kinds,  Next: ARM Memory Tag Types,  Up: ARM-Specific Protocol Details
 
-E.5.1.1 ARM Breakpoint Kinds
+E.6.1.1 ARM Breakpoint Kinds
 ............................
 
 These breakpoint kinds are defined for the 'Z0' and 'Z1' packets.
@@ -6388,7 +6922,7 @@ These breakpoint kinds are defined for the 'Z0' and 'Z1' packets.
 
 File: gdb.info,  Node: ARM Memory Tag Types,  Prev: ARM Breakpoint Kinds,  Up: ARM-Specific Protocol Details
 
-E.5.1.2 ARM Memory Tag Types
+E.6.1.2 ARM Memory Tag Types
 ............................
 
 These memory tag types are defined for the 'qMemTag' and 'QMemTag'
@@ -6403,7 +6937,7 @@ packets.
 
 File: gdb.info,  Node: MIPS-Specific Protocol Details,  Prev: ARM-Specific Protocol Details,  Up: Architecture-Specific Protocol Details
 
-E.5.2 MIPS-specific Protocol Details
+E.6.2 MIPS-specific Protocol Details
 ------------------------------------
 
 * Menu:
@@ -6414,7 +6948,7 @@ E.5.2 MIPS-specific Protocol Details
 
 File: gdb.info,  Node: MIPS Register packet Format,  Next: MIPS Breakpoint Kinds,  Up: MIPS-Specific Protocol Details
 
-E.5.2.1 MIPS Register Packet Format
+E.6.2.1 MIPS Register Packet Format
 ...................................
 
 The following 'g'/'G' packets have previously been defined.  In the
@@ -6437,7 +6971,7 @@ MIPS64
 
 File: gdb.info,  Node: MIPS Breakpoint Kinds,  Prev: MIPS Register packet Format,  Up: MIPS-Specific Protocol Details
 
-E.5.2.2 MIPS Breakpoint Kinds
+E.6.2.2 MIPS Breakpoint Kinds
 .............................
 
 These breakpoint kinds are defined for the 'Z0' and 'Z1' packets.
@@ -6457,7 +6991,7 @@ These breakpoint kinds are defined for the 'Z0' and 'Z1' packets.
 
 File: gdb.info,  Node: Tracepoint Packets,  Next: Host I/O Packets,  Prev: Architecture-Specific Protocol Details,  Up: Remote Protocol
 
-E.6 Tracepoint Packets
+E.7 Tracepoint Packets
 ======================
 
 Here we describe the packets GDB uses to implement tracepoints (*note
@@ -6481,8 +7015,6 @@ Tracepoints::).
           The packet was understood and carried out.
      'qRelocInsn'
           *Note Relocate instruction reply packet: Tracepoint Packets.
-     ''
-          The packet was not recognized.
 
 'QTDP:-N:ADDR:[S]ACTION...[-]'
      Define actions to be taken when a tracepoint is hit.  The N and
@@ -6540,8 +7072,6 @@ Tracepoints::).
           The packet was understood and carried out.
      'qRelocInsn'
           *Note Relocate instruction reply packet: Tracepoint Packets.
-     ''
-          The packet was not recognized.
 
 'QTDPsrc:N:ADDR:TYPE:START:SLEN:BYTES'
      Specify a source string of tracepoint N at address ADDR.  This is
@@ -6644,9 +7174,6 @@ Tracepoints::).
           regardless of size.
      'E'
           An error has occurred.
-     ''
-          An empty reply indicates that the request is not supported by
-          the stub.
 
 'QTStart'
      Begin the tracepoint experiment.  Begin collecting data from
@@ -6818,12 +7345,6 @@ Tracepoints::).
           a comma-separated list of markers
      'l'
           (lower case letter 'L') denotes end of list.
-     'E NN'
-          An error occurred.  The error number NN is given as hex
-          digits.
-     ''
-          An empty reply indicates that the request is not supported by
-          the stub.
 
      The ADDRESS is encoded in hex; ID and EXTRA are strings encoded in
      hex.
@@ -6869,7 +7390,7 @@ Tracepoints::).
      Allowable types include 'user', 'notes', and 'tstop', the TEXT
      fields are arbitrary strings, hex-encoded.
 
-E.6.1 Relocate instruction reply packet
+E.7.1 Relocate instruction reply packet
 ---------------------------------------
 
 When installing fast tracepoints in memory, the target may need to
@@ -6899,335 +7420,4 @@ explicitly say so.  See for example the above descriptions for the
 'qRelocInsn:ADJUSTED_SIZE'
      Informs the stub the relocation is complete.  The ADJUSTED_SIZE is
      the length in bytes of resulting relocated instruction sequence.
-'E NN'
-     A badly formed request was detected, or an error was encountered
-     while relocating the instruction.
-
-
-File: gdb.info,  Node: Host I/O Packets,  Next: Interrupts,  Prev: Tracepoint Packets,  Up: Remote Protocol
-
-E.7 Host I/O Packets
-====================
-
-The "Host I/O" packets allow GDB to perform I/O operations on the far
-side of a remote link.  For example, Host I/O is used to upload and
-download files to a remote target with its own filesystem.  Host I/O
-uses the same constant values and data structure layout as the
-target-initiated File-I/O protocol.  However, the Host I/O packets are
-structured differently.  The target-initiated protocol relies on target
-memory to store parameters and buffers.  Host I/O requests are initiated
-by GDB, and the target's memory is not involved.  *Note File-I/O Remote
-Protocol Extension::, for more details on the target-initiated protocol.
-
-   The Host I/O request packets all encode a single operation along with
-its arguments.  They have this format:
-
-'vFile:OPERATION: PARAMETER...'
-     OPERATION is the name of the particular request; the target should
-     compare the entire packet name up to the second colon when checking
-     for a supported operation.  The format of PARAMETER depends on the
-     operation.  Numbers are always passed in hexadecimal.  Negative
-     numbers have an explicit minus sign (i.e. two's complement is not
-     used).  Strings (e.g. filenames) are encoded as a series of
-     hexadecimal bytes.  The last argument to a system call may be a
-     buffer of escaped binary data (*note Binary Data::).
-
-   The valid responses to Host I/O packets are:
-
-'F RESULT [, ERRNO] [; ATTACHMENT]'
-     RESULT is the integer value returned by this operation, usually
-     non-negative for success and -1 for errors.  If an error has
-     occurred, ERRNO will be included in the result specifying a value
-     defined by the File-I/O protocol (*note Errno Values::).  For
-     operations which return data, ATTACHMENT supplies the data as a
-     binary buffer.  Binary buffers in response packets are escaped in
-     the normal way (*note Binary Data::).  See the individual packet
-     documentation for the interpretation of RESULT and ATTACHMENT.
-
-''
-     An empty response indicates that this operation is not recognized.
-
-   These are the supported Host I/O operations:
-
-'vFile:open: FILENAME, FLAGS, MODE'
-     Open a file at FILENAME and return a file descriptor for it, or
-     return -1 if an error occurs.  The FILENAME is a string, FLAGS is
-     an integer indicating a mask of open flags (*note Open Flags::),
-     and MODE is an integer indicating a mask of mode bits to use if the
-     file is created (*note mode_t Values::).  *Note open::, for details
-     of the open flags and mode values.
-
-'vFile:close: FD'
-     Close the open file corresponding to FD and return 0, or -1 if an
-     error occurs.
-
-'vFile:pread: FD, COUNT, OFFSET'
-     Read data from the open file corresponding to FD.  Up to COUNT
-     bytes will be read from the file, starting at OFFSET relative to
-     the start of the file.  The target may read fewer bytes; common
-     reasons include packet size limits and an end-of-file condition.
-     The number of bytes read is returned.  Zero should only be returned
-     for a successful read at the end of the file, or if COUNT was zero.
-
-     The data read should be returned as a binary attachment on success.
-     If zero bytes were read, the response should include an empty
-     binary attachment (i.e. a trailing semicolon).  The return value is
-     the number of target bytes read; the binary attachment may be
-     longer if some characters were escaped.
-
-'vFile:pwrite: FD, OFFSET, DATA'
-     Write DATA (a binary buffer) to the open file corresponding to FD.
-     Start the write at OFFSET from the start of the file.  Unlike many
-     'write' system calls, there is no separate COUNT argument; the
-     length of DATA in the packet is used.  'vFile:pwrite' returns the
-     number of bytes written, which may be shorter than the length of
-     DATA, or -1 if an error occurred.
-
-'vFile:fstat: FD'
-     Get information about the open file corresponding to FD.  On
-     success the information is returned as a binary attachment and the
-     return value is the size of this attachment in bytes.  If an error
-     occurs the return value is -1.  The format of the returned binary
-     attachment is as described in *note struct stat::.
-
-'vFile:unlink: FILENAME'
-     Delete the file at FILENAME on the target.  Return 0, or -1 if an
-     error occurs.  The FILENAME is a string.
-
-'vFile:readlink: FILENAME'
-     Read value of symbolic link FILENAME on the target.  Return the
-     number of bytes read, or -1 if an error occurs.
-
-     The data read should be returned as a binary attachment on success.
-     If zero bytes were read, the response should include an empty
-     binary attachment (i.e. a trailing semicolon).  The return value is
-     the number of target bytes read; the binary attachment may be
-     longer if some characters were escaped.
-
-'vFile:setfs: PID'
-     Select the filesystem on which 'vFile' operations with FILENAME
-     arguments will operate.  This is required for GDB to be able to
-     access files on remote targets where the remote stub does not share
-     a common filesystem with the inferior(s).
-
-     If PID is nonzero, select the filesystem as seen by process PID.
-     If PID is zero, select the filesystem as seen by the remote stub.
-     Return 0 on success, or -1 if an error occurs.  If 'vFile:setfs:'
-     indicates success, the selected filesystem remains selected until
-     the next successful 'vFile:setfs:' operation.
-
-
-File: gdb.info,  Node: Interrupts,  Next: Notification Packets,  Prev: Host I/O Packets,  Up: Remote Protocol
-
-E.8 Interrupts
-==============
-
-In all-stop mode, when a program on the remote target is running, GDB
-may attempt to interrupt it by sending a 'Ctrl-C', 'BREAK' or a 'BREAK'
-followed by 'g', control of which is specified via GDB's
-'interrupt-sequence'.
-
-   The precise meaning of 'BREAK' is defined by the transport mechanism
-and may, in fact, be undefined.  GDB does not currently define a 'BREAK'
-mechanism for any of the network interfaces except for TCP, in which
-case GDB sends the 'telnet' BREAK sequence.
-
-   'Ctrl-C', on the other hand, is defined and implemented for all
-transport mechanisms.  It is represented by sending the single byte
-'0x03' without any of the usual packet overhead described in the
-Overview section (*note Overview::).  When a '0x03' byte is transmitted
-as part of a packet, it is considered to be packet data and does _not_
-represent an interrupt.  E.g., an 'X' packet (*note X packet::), used
-for binary downloads, may include an unescaped '0x03' as part of its
-packet.
-
-   'BREAK' followed by 'g' is also known as Magic SysRq g.  When Linux
-kernel receives this sequence from serial port, it stops execution and
-connects to gdb.
-
-   In non-stop mode, because packet resumptions are asynchronous (*note
-vCont packet::), GDB is always free to send a remote command to the
-remote stub, even when the target is running.  For that reason, GDB
-instead sends a regular packet (*note vCtrlC packet::) with the usual
-packet framing instead of the single byte '0x03'.
-
-   Stubs are not required to recognize these interrupt mechanisms and
-the precise meaning associated with receipt of the interrupt is
-implementation defined.  If the target supports debugging of multiple
-threads and/or processes, it should attempt to interrupt all
-currently-executing threads and processes.  If the stub is successful at
-interrupting the running program, it should send one of the stop reply
-packets (*note Stop Reply Packets::) to GDB as a result of successfully
-stopping the program in all-stop mode, and a stop reply for each stopped
-thread in non-stop mode.  Interrupts received while the program is
-stopped are queued and the program will be interrupted when it is
-resumed next time.
-
-
-File: gdb.info,  Node: Notification Packets,  Next: Remote Non-Stop,  Prev: Interrupts,  Up: Remote Protocol
-
-E.9 Notification Packets
-========================
-
-The GDB remote serial protocol includes "notifications", packets that
-require no acknowledgment.  Both the GDB and the stub may send
-notifications (although the only notifications defined at present are
-sent by the stub).  Notifications carry information without incurring
-the round-trip latency of an acknowledgment, and so are useful for
-low-impact communications where occasional packet loss is not a problem.
-
-   A notification packet has the form '% DATA # CHECKSUM', where DATA is
-the content of the notification, and CHECKSUM is a checksum of DATA,
-computed and formatted as for ordinary GDB packets.  A notification's
-DATA never contains '$', '%' or '#' characters.  Upon receiving a
-notification, the recipient sends no '+' or '-' to acknowledge the
-notification's receipt or to report its corruption.
-
-   Every notification's DATA begins with a name, which contains no colon
-characters, followed by a colon character.
-
-   Recipients should silently ignore corrupted notifications and
-notifications they do not understand.  Recipients should restart timeout
-periods on receipt of a well-formed notification, whether or not they
-understand it.
-
-   Senders should only send the notifications described here when this
-protocol description specifies that they are permitted.  In the future,
-we may extend the protocol to permit existing notifications in new
-contexts; this rule helps older senders avoid confusing newer
-recipients.
-
-   (Older versions of GDB ignore bytes received until they see the '$'
-byte that begins an ordinary packet, so new stubs may transmit
-notifications without fear of confusing older clients.  There are no
-notifications defined for GDB to send at the moment, but we assume that
-most older stubs would ignore them, as well.)
-
-   Each notification is comprised of three parts:
-'NAME:EVENT'
-     The notification packet is sent by the side that initiates the
-     exchange (currently, only the stub does that), with EVENT carrying
-     the specific information about the notification, and NAME
-     specifying the name of the notification.
-'ACK'
-     The acknowledge sent by the other side, usually GDB, to acknowledge
-     the exchange and request the event.
-
-   The purpose of an asynchronous notification mechanism is to report to
-GDB that something interesting happened in the remote stub.
-
-   The remote stub may send notification NAME:EVENT at any time, but GDB
-acknowledges the notification when appropriate.  The notification event
-is pending before GDB acknowledges.  Only one notification at a time may
-be pending; if additional events occur before GDB has acknowledged the
-previous notification, they must be queued by the stub for later
-synchronous transmission in response to ACK packets from GDB.  Because
-the notification mechanism is unreliable, the stub is permitted to
-resend a notification if it believes GDB may not have received it.
-
-   Specifically, notifications may appear when GDB is not otherwise
-reading input from the stub, or when GDB is expecting to read a normal
-synchronous response or a '+'/'-' acknowledgment to a packet it has
-sent.  Notification packets are distinct from any other communication
-from the stub so there is no ambiguity.
-
-   After receiving a notification, GDB shall acknowledge it by sending a
-ACK packet as a regular, synchronous request to the stub.  Such
-acknowledgment is not required to happen immediately, as GDB is
-permitted to send other, unrelated packets to the stub first, which the
-stub should process normally.
-
-   Upon receiving a ACK packet, if the stub has other queued events to
-report to GDB, it shall respond by sending a normal EVENT.  GDB shall
-then send another ACK packet to solicit further responses; again, it is
-permitted to send other, unrelated packets as well which the stub should
-process normally.
-
-   If the stub receives a ACK packet and there are no additional EVENT
-to report, the stub shall return an 'OK' response.  At this point, GDB
-has finished processing a notification and the stub has completed
-sending any queued events.  GDB won't accept any new notifications until
-the final 'OK' is received .  If further notification events occur, the
-stub shall send a new notification, GDB shall accept the notification,
-and the process shall be repeated.
-
-   The process of asynchronous notification can be illustrated by the
-following example:
-     <- %Stop:T0505:98e7ffbf;04:4ce6ffbf;08:b1b6e54c;thread:p7526.7526;core:0;
-     ...
-     -> vStopped
-     <- T0505:68f37db7;04:40f37db7;08:63850408;thread:p7526.7528;core:0;
-     -> vStopped
-     <- T0505:68e3fdb6;04:40e3fdb6;08:63850408;thread:p7526.7529;core:0;
-     -> vStopped
-     <- OK
-
-   The following notifications are defined:
-
-NotificationAck     Event                       Description
-                                                
-Stop      vStopped  REPLY.  The REPLY has the   Report an asynchronous
-                    form of a stop reply, as    stop event in non-stop
-                    described in                mode.
-                    *note Stop Reply Packets::. 
-                    Refer to
-                    *note Remote Non-Stop::,
-                    for information on how
-                    these notifications are
-                    acknowledged by GDB.
-
-
-File: gdb.info,  Node: Remote Non-Stop,  Next: Packet Acknowledgment,  Prev: Notification Packets,  Up: Remote Protocol
-
-E.10 Remote Protocol Support for Non-Stop Mode
-==============================================
-
-GDB's remote protocol supports non-stop debugging of multi-threaded
-programs, as described in *note Non-Stop Mode::.  If the stub supports
-non-stop mode, it should report that to GDB by including 'QNonStop+' in
-its 'qSupported' response (*note qSupported::).
-
-   GDB typically sends a 'QNonStop' packet only when establishing a new
-connection with the stub.  Entering non-stop mode does not alter the
-state of any currently-running threads, but targets must stop all
-threads in any already-attached processes when entering all-stop mode.
-GDB uses the '?' packet as necessary to probe the target state after a
-mode change.
-
-   In non-stop mode, when an attached process encounters an event that
-would otherwise be reported with a stop reply, it uses the asynchronous
-notification mechanism (*note Notification Packets::) to inform GDB.  In
-contrast to all-stop mode, where all threads in all processes are
-stopped when a stop reply is sent, in non-stop mode only the thread
-reporting the stop event is stopped.  That is, when reporting a 'S' or
-'T' response to indicate completion of a step operation, hitting a
-breakpoint, or a fault, only the affected thread is stopped; any other
-still-running threads continue to run.  When reporting a 'W' or 'X'
-response, all running threads belonging to other attached processes
-continue to run.
-
-   In non-stop mode, the target shall respond to the '?' packet as
-follows.  First, any incomplete stop reply notification/'vStopped'
-sequence in progress is abandoned.  The target must begin a new sequence
-reporting stop events for all stopped threads, whether or not it has
-previously reported those events to GDB.  The first stop reply is sent
-as a synchronous reply to the '?' packet, and subsequent stop replies
-are sent as responses to 'vStopped' packets using the mechanism
-described above.  The target must not send asynchronous stop reply
-notifications until the sequence is complete.  If all threads are
-running when the target receives the '?' packet, or if the target is not
-attached to any process, it shall respond 'OK'.
-
-   If the stub supports non-stop mode, it should also support the
-'swbreak' stop reason if software breakpoints are supported, and the
-'hwbreak' stop reason if hardware breakpoints are supported (*note
-swbreak stop reason::).  This is because given the asynchronous nature
-of non-stop mode, between the time a thread hits a breakpoint and the
-time the event is finally processed by GDB, the breakpoint may have
-already been removed from the target.  Due to this, GDB needs to be able
-to tell whether a trap stop was caused by a delayed breakpoint event,
-which should be ignored, as opposed to a random trap signal, which
-should be reported to the user.  Note the 'swbreak' feature implies that
-the target is responsible for adjusting the PC when a software
-breakpoint triggers, if necessary, such as on the x86 architecture.
 
